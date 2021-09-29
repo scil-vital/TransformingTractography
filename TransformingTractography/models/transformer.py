@@ -6,11 +6,11 @@ from torch.nn.modules.transformer import (
 from torch.nn.modules.linear import Linear
 from torch.nn import Softmax
 
-from TransformingTractography.model.encoder_decoder import (TransformerEncoderLayerV,
-                                                            TransformerDecoderLayerV)
+from TransformingTractography.models.encoder_decoder import (
+    OurTransformerEncoderLayer, OurTransformerDecoderLayer)
 
 
-class TransformerV(Transformer):
+class OurTransformer(Transformer):
     """
     We can use torch.nn.Transformer.
     We will also compare with
@@ -66,7 +66,7 @@ class TransformerV(Transformer):
         emb_layer_x: torch.nn.Module
             Choice for the positional embedding technique. For example, this
             could be a sinusoidal embedding such as defined in
-            VITALabAI.model.generative.TransformingTractography.utils.embedding, a CNN or
+            VITALabAI.models.generative.TransformingTractography.utils.embedding, a CNN or
             a fully connected neural network. It should be pre-instantiated with
             the parameter choices.  Must produce outputs of size d_model. Should
             have a self.d_model feature so that we can verify this.
@@ -99,16 +99,16 @@ class TransformerV(Transformer):
                              "d_model!")
 
         # Defining our encoder
-        encoder_layer = TransformerEncoderLayerV(d_model, nhead, dim_ffnn,
-                                                 dropout, activation)
+        encoder_layer = OurTransformerEncoderLayer(d_model, nhead, dim_ffnn,
+                                                   dropout, activation)
         encoder_norm = None  # Originally in torch: LayerNorm(d_model), but the
                              # encoder layers already have a norm! Redundant
         custom_encoder = TransformerEncoder(encoder_layer, n_layers_e,
                                             encoder_norm)
 
         # Defining our decoder
-        decoder_layer = TransformerDecoderLayerV(d_model, nhead, dim_ffnn,
-                                                 dropout, activation)
+        decoder_layer = OurTransformerDecoderLayer(d_model, nhead, dim_ffnn,
+                                                   dropout, activation)
         decoder_norm = None  # Originally in torch: LayerNorm(d_model), but the
                              # decoder layers already have a norm! Redundant
         custom_decoder = TransformerDecoder(decoder_layer, n_layers_d,

@@ -2,11 +2,11 @@
 
 from dwi_ml.experiment.trainer_abstract import StreamlinesBasedModelAbstract
 
-from TransformingTractography.model.embedding import (
+from TransformingTractography.models.embedding import (
     CompleteEmbedding, ConvolutionalDataEmbedding,
     NeuralNetworkDataEmbedding, SimpleDataEmbedding, SinusoidalPosEmbedding,
     RelationalSinusoidalPosEmbedding)
-from TransformingTractography.model.transformer import TransformerV
+from TransformingTractography.models.transformer import OurTransformer
 
 class Trainer(StreamlinesBasedModelAbstract):
     def __init__(self, args):
@@ -45,7 +45,7 @@ class Trainer(StreamlinesBasedModelAbstract):
 
     def build_model(self):
         """
-        Build PyTorch Transformer model.
+        Build PyTorch Transformer models.
         """
         data_embedding_builder = {
             'simple': SimpleDataEmbedding(), #toDO
@@ -72,12 +72,12 @@ class Trainer(StreamlinesBasedModelAbstract):
                                                  self.dropout)
         embedding_layer_y = None #ToDo
 
-        # Complete model
-        self.transformer = TransformerV(embedding_layer_x, embedding_layer_y,
-                                        self.nb_classes, self.d_model,
-                                        self.nheads, self.n_layers_e,
-                                        self.n_layers_d, self.dim_ffnn,
-                                        self.dropout, self.activation)
+        # Complete models
+        self.transformer = OurTransformer(embedding_layer_x, embedding_layer_y,
+                                          self.nb_classes, self.d_model,
+                                          self.nheads, self.n_layers_e,
+                                          self.n_layers_d, self.dim_ffnn,
+                                          self.dropout, self.activation)
 
     def train(self, **kwargs):
         self.transformer(self.data_x, self.data_y)

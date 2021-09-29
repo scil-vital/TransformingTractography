@@ -101,7 +101,7 @@ MULTI-HEAD ATTENTION
     
 Notes.
 - d_q and d_k should always be equal. d_v could be different but is equal in our
-    chosen model.
+    chosen models.
 - To help with dimensions with residual connections, output of each sub-layer 
     is always d_emb.
 
