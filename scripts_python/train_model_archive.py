@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-""" Train a model for learn2track"""
+""" Train a models for learn2track"""
 
 import argparse
 import logging
@@ -10,9 +10,9 @@ from dwi_ml.experiment.scripts_utils import (add_dwi_ml_optional_args,
                                              check_dwi_ml_mandatory_args,
                                              check_dwi_ml_optional_args)
 
-from TransformingTractography.experiment.transformer_trainer import Trainer
-from TransformingTractography.model.embedding import (DATA_EMBEDDING_CHOICES,
-                                                      POSITION_EMBEDDING_CHOICES)
+from TransformingTractography.training.archive import Trainer
+from TransformingTractography.models.embedding import (DATA_EMBEDDING_CHOICES,
+                                                       POSITION_EMBEDDING_CHOICES)
 
 
 def parse_args():
@@ -134,7 +134,7 @@ def main():
 
     # Instantiate your class
     # (Change StreamlinesBasedModelAbstract for you class.)
-    # Then load dataset, build model, train model and save
+    # Then load dataset, build models, train models and save
     experiment = Trainer(args)
     experiment.load_dataset()
     experiment.build_model()

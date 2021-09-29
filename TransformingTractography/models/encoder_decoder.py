@@ -1,10 +1,5 @@
-import torch
-import math
-
 from torch.nn.modules.transformer import (
     TransformerEncoderLayer, TransformerDecoderLayer)
-
-from TransformingTractography.attention import MultiHeadAttention
 
 """
  The encoder and decoder simply iterate over the encoding/decoding layers.
@@ -18,7 +13,7 @@ from TransformingTractography.attention import MultiHeadAttention
 # encoderLayer (+ layerNorm at the end) so we only need to change the layers.
 
 
-class TransformerEncoderLayerV(TransformerEncoderLayer):
+class OurTransformerEncoderLayer(TransformerEncoderLayer):
     def __init__(self, d_model: int, nhead: int = 8, dim_ffnn: int = 2048,
                  dropout: float = 0.1, activation: str = "relu"):
         """
@@ -64,7 +59,7 @@ class TransformerEncoderLayerV(TransformerEncoderLayer):
                         src_key_padding_mask=x_key_padding_mask)
 
 
-class TransformerDecoderLayerV(TransformerDecoderLayer):
+class OurTransformerDecoderLayer(TransformerDecoderLayer):
     def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1,
                  activation="relu"):
         """
