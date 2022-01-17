@@ -3,7 +3,7 @@ from dwi_ml.models.batch_samplers import (
     BatchStreamlinesSampler1IPV as BatchSampler)
 from Learn2Track.training.trainers import Learn2TrackTrainer
 
-from TransformingTractography.models.transformer import OurTransformer
+from TransformingTractography.models.transformer import TransformingTractography
 
 # For now, copying Learn2track trainer. Let's see if anything will be different
 
@@ -12,7 +12,7 @@ class TransformerTrainer(Learn2TrackTrainer):
     def __init__(self,
                  batch_sampler_training: BatchSampler,
                  batch_sampler_validation: BatchSampler,
-                 model: OurTransformer, experiment_path: str,
+                 model: TransformingTractography, experiment_path: str,
                  experiment_name: str, learning_rate: float,
                  weight_decay: float, max_epochs: int,
                  max_batches_per_epoch: int, patience: int,

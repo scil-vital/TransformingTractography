@@ -1,3 +1,0 @@
-
-class MultiHeadAttention:
-    raise NotImplementedError
