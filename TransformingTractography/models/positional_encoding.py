@@ -6,11 +6,10 @@ Positional embeddings:
     - RelationalSinusoidalPosEmbedding
 """
 import math
-import numpy as np
 import torch
 
 
-class AbstractPositionalEmbedding(torch.nn.Module):
+class AbstractPositionalEncoding(torch.nn.Module):
     def __init__(self, d_model, dropout_rate, max_len: int = 2048):
         super().__init__()
         self.d_model = d_model
@@ -20,7 +19,7 @@ class AbstractPositionalEmbedding(torch.nn.Module):
         self.dropout = torch.nn.Dropout(p=dropout_rate)
 
 
-class SinusoidalPositionalEmbedding(AbstractPositionalEmbedding):
+class SinusoidalPositionalEncoding(AbstractPositionalEncoding):
     """
     Creates the vector for positional embedding that can be added to the data
     embedding as first layer of a transformer. Such as described in the paper
@@ -62,11 +61,10 @@ class SinusoidalPositionalEmbedding(AbstractPositionalEmbedding):
         Args:
             x: Tensor, shape [seq_len, batch_size, embedding_dim]
         """
-        x = x + self.pos_emb[:x.size(0)]
-        return self.dropout(x)
+        return self.pos_emb[:x.size(0)]
 
 
-class RelationalSinusoidalPosEmbedding(AbstractPositionalEmbedding):
+class RelationalSinusoidalPosEncoding(AbstractPositionalEncoding):
     """
     Creates the vector for positional embedding that can be added to the data
     embedding as first layer of a transformer. Such as described in the music
@@ -77,7 +75,7 @@ class RelationalSinusoidalPosEmbedding(AbstractPositionalEmbedding):
         raise NotImplementedError
 
 
-keys_to_positional_embeddings = {
-    'sinusoidal': SinusoidalPositionalEmbedding,
-    'relational': RelationalSinusoidalPosEmbedding,
+keys_to_positional_encodings = {
+    'sinusoidal': SinusoidalPositionalEncoding,
+    'relational': RelationalSinusoidalPosEncoding,
 }

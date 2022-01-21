@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 import logging
 
-from TransformingTractography.models.positional_embeddings import (
+from TransformingTractography.models.positional_encoding import (
     DATA_EMBEDDING_CHOICES, POSITION_EMBEDDING_CHOICES)
 from TransformingTractography.models.transformer import \
-    TransformingTractographyModel
+    WholeTransformerModel
 
 
 def add_model_args(p):
@@ -104,6 +104,6 @@ def prepare_model(args):
             logging.warning("--max_seq was defined but embedding choice was "
                             "not sinusoidal. max_seq is thus ignored.")
 
-    model = TransformingTractographyModel(
+    model = WholeTransformerModel(
 
     )

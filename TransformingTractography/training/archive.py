@@ -2,10 +2,10 @@
 
 from dwi_ml.experiment.trainer_abstract import StreamlinesBasedModelAbstract
 
-from TransformingTractography.models.positional_embeddings import (
+from TransformingTractography.models.positional_encoding import (
     CompleteEmbedding, ConvolutionalDataEmbedding,
-    NeuralNetworkDataEmbedding, SimpleDataEmbedding, SinusoidalPosEmbedding,
-    RelationalSinusoidalPosEmbedding)
+    NeuralNetworkDataEmbedding, SimpleDataEmbedding, SinusoidalPosEmbedding2,
+    RelationalSinusoidalPosEncoding)
 from TransformingTractography.models.transformer import TransformingTractography
 
 class Trainer(StreamlinesBasedModelAbstract):
@@ -56,9 +56,9 @@ class Trainer(StreamlinesBasedModelAbstract):
             'cnn': ConvolutionalDataEmbedding() #toDO
         }
         position_embedding_builder = {
-            'sinusoidal': SinusoidalPosEmbedding(d_model=self.d_model,
-                                                 max_seq=self.max_seq),
-            'relational': RelationalSinusoidalPosEmbedding() #toDo
+            'sinusoidal': SinusoidalPosEmbedding2(d_model=self.d_model,
+                                                  max_seq=self.max_seq),
+            'relational': RelationalSinusoidalPosEncoding() #toDo
         }
 
         # Embedding
