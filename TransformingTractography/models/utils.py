@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 import logging
 
+from dwi_ml.experiment_utils.prints import format_dict_to_str
+from dwi_ml.experiment_utils.timer import Timer
 from dwi_ml.models.embeddings_on_tensors import keys_to_embeddings
 
 from TransformingTractography.models.positional_encoding import (
@@ -90,14 +92,75 @@ def _perform_checks(args):
             logging.warning("--max_seq was defined but embedding choice was "
                             "not sinusoidal. max_seq is thus ignored.")
 
+    # Prepare args for the direction getter
+    dg_dropout = args.dg_dropout if args.dg_dropout else \
+        args.dropout if args.dropout else 0
+    dg_args = {'dropout': dg_dropout}
+    if args.direction_getter_key == 'gaussian-mixture':
+        nb_gaussians = args.nb_gaussians if args.nb_gaussians else 3
+        dg_args.update({'nb_gaussians': nb_gaussians})
+    elif args.nb_gaussians:
+        logging.warning(
+            "You have provided a value for --nb_gaussians but the "
+            "chosen direction getter is not the gaussian mixture."
+            "Ignored.")
+    if args.direction_getter_key == 'fisher-von-mises-mixture':
+        nb_clusters = args.nb_clusters if args.nb_nb_clusters else 3
+        dg_args.update({'n_cluster': nb_clusters})
+    elif args.nb_clusters:
+        logging.warning(
+            "You have provided a value for --nb_clusters but the "
+            "chosen direction getter is not the Fisher von Mises "
+            "mixture. Ignored.")
+
+    # Prepare args for the neighborhood
+    if args.grid_radius:
+        args.neighborhood_radius = args.grid_radius
+        args.neighborhood_type = 'grid'
+    elif args.sphere_radius:
+        args.neighborhood_radius = args.sphere_radius
+        args.neighborhood_type = 'axes'
+    else:
+        args.neighborhood_radius = None
+        args.neighborhood_type = None
+
+    return dg_args, args
+
 
 def prepare_original_model(args):
-    _perform_checks(args)
-    model = OriginalTransformerModel()
+    dg_args, args = _perform_checks(args)
+
+    with Timer("\n\nPreparing model", newline=True, color='yellow'):
+        model = OriginalTransformerModel(
+            args.experiment_name, args.neighborhood_type,
+            args.neighborhood_radius, args.nb_features,
+            args.padding_length, args.positional_encoding_key,
+            args.x_embedding_key, args.t_embedding_key, args.d_model,
+            args.dim_ffnn, args.nheads, args.dropout_rate, args.activation,
+            args.n_layers_e, args.n_layers_d,
+            args.direction_getter_key, dg_args, args.normalize_directions)
+
+        logging.info("Transformer (original) model final parameters:" +
+                     format_dict_to_str(model.params_per_layer))
+
     return model
 
 
 def prepare_src_tgt_model(args):
-    _perform_checks(args)
-    model = TransformerSourceAndTargetModel()
+    dg_args, args = _perform_checks(args)
+
+    with Timer("\n\nPreparing model", newline=True, color='yellow'):
+        model = TransformerSourceAndTargetModel(
+            args.experiment_name, args.neighborhood_type,
+            args.neighborhood_radius, args.nb_features,
+            args.padding_length, args.positional_encoding_key,
+            args.x_embedding_key, args.t_embedding_key, args.d_model,
+            args.dim_ffnn, args.nheads, args.dropout_rate, args.activation,
+            args.n_layers_d, args.direction_getter_key, dg_args,
+            args.normalize_directions)
+
+        logging.info("Transformer (src-tgt attention) model final "
+                     "parameters:" +
+                     format_dict_to_str(model.params_per_layer))
+
     return model
