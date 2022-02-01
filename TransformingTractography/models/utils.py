@@ -1,46 +1,25 @@
 # -*- coding: utf-8 -*-
 import logging
 
+from dwi_ml.models.embeddings_on_tensors import keys_to_embeddings
+
 from TransformingTractography.models.positional_encoding import (
-    DATA_EMBEDDING_CHOICES, POSITION_EMBEDDING_CHOICES)
+    keys_to_positional_encodings)
 from TransformingTractography.models.transformer import \
-    WholeTransformerModel
+    OriginalTransformerModel, TransformerSourceAndTargetModel
 
 
-def add_model_args(p):
+def add_general_model_args(p):
     """ Optional parameters for TransformingTractography"""
-    gx = p.add_argument_group(
-        title="Embedding X. Total embedding will be : \n"
-              "(data_embedding + position_embedding) * "
-              "sqrt(embedding_size) + dropout")
-
-    # Note about embedding. In [1], word2vec. Embedding to a fixed vocabulary
-    # size. torch.nn.Embedding(dict_size??, self.d_model). Not really feasible
-    # here.
+    gx = p.add_argument_group("Embedding X:")
     gx.add_argument(
         '--data_embedding', default='simple',
-        choices=DATA_EMBEDDING_CHOICES.keys(),
-        help="Type of data embedding to use. Default: [%(default)s]\n"
-             "   -Simple: Like word2vec. Needs a fixed vocabulary size. \n"
-             "   -ffnn: Learns an embedding with a simple neural network. No "
-             "fixed vocabulary size.\n"
-             "   -cnn: Learns an embedding with a convolutional neural "
-             "network (CNN). Not ready. Args to be added.")
-    gx.add_argument(
-        '--data_embedding_size', type=int, default=512,
-        help="Embedding size, and thus size of the input the transformer "
-             "will receive. (d_model in [1], D in [2]).\n "
-             "Value in [1] and [2]: 512. Default: [%(default)s]")
-    gx.add_argument(
-        '--hidden_layers_NN', type=[int, int],
-        metavar='[NB_HIDDEN_LAYERS, SIZE_HIDDEN_LAYERS]',
-        help="Number of hidden layers in the case of neural network data "
-             "embedding, and their size (the way we parepared this, they must "
-             "all have the same size. Default: No hidden layers.")
-
+        choices=keys_to_embeddings.keys(),
+        help="Type of data embedding to use. Currently, only one layer of"
+             "NN is implemented. #todo.")
     gx.add_argument(
         '--position_embedding', default='sinusoidal',
-        choices=POSITION_EMBEDDING_CHOICES.keys(),
+        choices=keys_to_positional_encodings.keys(),
         help="Type of positional embedding to use. Default: [%(default)s]\n"
              "   -Sinusoidal: Such as described in [1]. Also used in [2].\n"
              "   -Relational: Such as described in [2].")
@@ -50,20 +29,7 @@ def add_model_args(p):
              "with sinusoidal position embedding.\n"
              "Value in [1]: ?. In [2]: 3500.")
 
-    gy = p.add_argument_group(title='Embedding Y. ToDo')
-    gy.add_argument(
-        '--nb_classes', type=int, default=30,
-        help="Number of classes as output choices. Default: [%(default)s]")
-
     gt = p.add_argument_group(title='Transformer')
-    gt.add_argument(
-        '--n_layers_e', type=int, default=6,
-        help="Number of encoding layers. Value in [1] and [2]; 6. "
-             "Default: [%(default)s]")
-    gt.add_argument(
-        '--n_layers_d', type=int, default=6,
-        help="Number of decoding layers. Value in [1] and [2]; 6. "
-             "Default: [%(default)s]")
     gt.add_argument(
         '--nheads', type=int, default=8,
         help="Number of heads per layer. Could be different for each layer "
@@ -85,9 +51,29 @@ def add_model_args(p):
         '--activation', choices=['relu', 'gelu'], default='relu',
         help="Choice of activation function in the FFNN. Default: "
              "[%(default)s]")
+    return gt
 
 
-def prepare_model(args):
+def add_original_model_args(gt):
+    gt.add_argument(
+        '--n_layers_e', type=int, default=6,
+        help="Number of encoding layers. Value in [1] and [2]; 6. "
+             "Default: [%(default)s]")
+    gt.add_argument(
+        '--n_layers_d', type=int, default=6,
+        help="Number of decoding layers. Value in [1] and [2]; 6. "
+             "Default: [%(default)s]")
+
+
+def add_src_tgt_attention_args(gt):
+    gt.add_argument(
+        '--n_layers_d', type=int, default=14,
+        help="Number of 'decoding' layers. Value in [3]; 14. "
+             "Default: [%(default)s].\n"
+             "[3]: https://arxiv.org/pdf/1905.06596.pdf")
+
+
+def _perform_checks(args):
     # Deal with your optional parameters:
     if args.dropout_rate < 0 or args.dropout_rate > 1:
         raise ValueError('The dropout rate must be between 0 and 1.')
@@ -104,6 +90,14 @@ def prepare_model(args):
             logging.warning("--max_seq was defined but embedding choice was "
                             "not sinusoidal. max_seq is thus ignored.")
 
-    model = WholeTransformerModel(
 
-    )
+def prepare_original_model(args):
+    _perform_checks(args)
+    model = OriginalTransformerModel()
+    return model
+
+
+def prepare_src_tgt_model(args):
+    _perform_checks(args)
+    model = TransformerSourceAndTargetModel()
+    return model

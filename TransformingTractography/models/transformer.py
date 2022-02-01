@@ -280,7 +280,7 @@ class AbstractTransformerModel(MainModelAbstract):
             model_outputs)
 
 
-class WholeTransformerModel(AbstractTransformerModel):
+class OriginalTransformerModel(AbstractTransformerModel):
     """
     We can use torch.nn.Transformer.
     We will also compare with
