@@ -24,12 +24,13 @@ from dwi_ml.training.utils.experiment import (
     add_memory_args_training_experiment,
     add_printing_args_training_experiment)
 from dwi_ml.training.utils.trainer import (
-    add_training_args, prepare_trainer, run_experiment)
+    add_training_args, run_experiment)
 
 
 from TransformingTractography.models.utils import (
     add_general_model_args, add_src_tgt_attention_args,
     prepare_src_tgt_model as prepare_model)
+from TransformingTractography.training.utils import prepare_trainer
 
 
 # Currently only accepting NN embedding for target
