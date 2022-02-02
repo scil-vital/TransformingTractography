@@ -13,6 +13,7 @@ from scilpy.io.utils import assert_inputs_exist, assert_outputs_exist
 
 from dwi_ml.data.dataset.utils import (
     add_args_dataset, prepare_multisubjectdataset)
+from dwi_ml.models.utils.direction_getters import add_direction_getter_args
 from dwi_ml.training.utils.batch_samplers import (
     add_args_batch_sampler, prepare_batchsamplers_train_valid)
 from dwi_ml.training.utils.batch_loaders import (
@@ -21,13 +22,12 @@ from dwi_ml.training.utils.experiment import (
     add_mandatory_args_training_experiment,
     add_memory_args_training_experiment,
     add_printing_args_training_experiment)
-from dwi_ml.training.utils.trainer import (
-    add_training_args, run_experiment)
+from dwi_ml.training.utils.trainer import add_training_args, run_experiment
 
 
 from TransformingTractography.models.utils import (
-    add_general_model_args, add_original_model_args,
-    prepare_original_model as prepare_model)
+    add_abstract_model_args, add_original_model_args,
+    perform_checks, prepare_original_model)
 from TransformingTractography.training.utils import prepare_trainer
 
 
@@ -46,29 +46,23 @@ def prepare_arg_parser():
     add_args_batch_loader(p)
     add_training_args(p)
 
-    gt = add_general_model_args(p)
+    gt = add_abstract_model_args(p)
     add_original_model_args(gt)
+    add_direction_getter_args(p)
 
     return p
 
 
 def init_from_args(p, args):
     # Prepare the dataset
-    dataset = prepare_multisubjectdataset(args)
+    dataset = prepare_multisubjectdataset(args, load_testing=False)
 
     # Preparing the model
-    if args.grid_radius:
-        args.neighborhood_radius = args.grid_radius
-        args.neighborhood_type = 'grid'
-    elif args.sphere_radius:
-        args.neighborhood_radius = args.sphere_radius
-        args.neighborhood_type = 'axes'
-    else:
-        args.neighborhood_radius = None
-        args.neighborhood_type = None
+    args, dg_args = perform_checks(args)
     input_group_idx = dataset.volume_groups.index(args.input_group_name)
     args.nb_features = dataset.nb_features[input_group_idx]
-    model = prepare_model(args)
+    model = prepare_original_model(args, dg_args)
+    exit(0)
 
     # Preparing the batch samplers
     args.wait_for_gpu = args.use_gpu

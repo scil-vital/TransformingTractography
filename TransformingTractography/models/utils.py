@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 import logging
 
+from dwi_ml.data.processing.space.neighborhood import add_args_neighborhood
 from dwi_ml.experiment_utils.prints import format_dict_to_str
 from dwi_ml.experiment_utils.timer import Timer
 from dwi_ml.models.embeddings_on_tensors import keys_to_embeddings
+from dwi_ml.models.utils.direction_getters import check_args_direction_getter
 
 from TransformingTractography.models.positional_encoding import (
     keys_to_positional_encodings)
@@ -11,27 +13,36 @@ from TransformingTractography.models.transformer import \
     OriginalTransformerModel, TransformerSourceAndTargetModel
 
 
-def add_general_model_args(p):
+def add_abstract_model_args(p):
     """ Optional parameters for TransformingTractography"""
-    gx = p.add_argument_group("Embedding X:")
+    gx = p.add_argument_group("Embedding:")
     gx.add_argument(
-        '--data_embedding', default='simple',
+        '--data_embedding', default='nn_embedding',
         choices=keys_to_embeddings.keys(),
         help="Type of data embedding to use. Currently, only one layer of"
              "NN is implemented. #todo.")
     gx.add_argument(
-        '--position_embedding', default='sinusoidal',
+        '--position_encoding', default='sinusoidal',
         choices=keys_to_positional_encodings.keys(),
-        help="Type of positional embedding to use. Default: [%(default)s]\n"
+        help="Type of positional embedding to use. Default: [%(default)s].\n"
              "   -Sinusoidal: Such as described in [1]. Also used in [2].\n"
              "   -Relational: Such as described in [2].")
     gx.add_argument(
-        '--max_seq', type=int,
-        help="Longest sequence allowed. Only necessary, but then mandatory, "
-             "with sinusoidal position embedding.\n"
-             "Value in [1]: ?. In [2]: 3500.")
+        '--target_embedding', default='nn_embedding',
+        choices={'nn_embedding'},
+        help="Type of streamline embedding to use. #todo.")
 
     gt = p.add_argument_group(title='Transformer')
+    gt.add_argument(
+        '--d_model', type=int, default=4096,
+        help="Output size that will kept constant in all layers to allow skip "
+             "connections (embedding size, ffnn output size, attention size)")
+    p.add_argument(
+        '--max_seq', type=int, default=1000,
+        help="Longest sequence allowed. Other sequences will be zero-padded "
+             "up to that length\n (but attention can't attend to padded "
+             "timepoints).\n Also used with sinusoidal position embedding.\n"
+             "Value in [1]: ?. In [2]: 3500. Here: default=1000.")
     gt.add_argument(
         '--nheads', type=int, default=8,
         help="Number of heads per layer. Could be different for each layer "
@@ -44,7 +55,7 @@ def add_general_model_args(p):
              "Needed in embedding, encoder and decoder. Value in [1] and "
              "[2]: 0.1. Default: [%(default)s]")
     gt.add_argument(
-        '--ffnn_size', type=int, default=None,
+        '--ffnn_hidden_size', type=int, default=None,
         help="Size of the feed-forward neural network (FFNN) layer in the "
              "encoder and decoder layers. The FFNN is composed of two linear "
              "layers. This is the size of the output of the first one. "
@@ -53,6 +64,17 @@ def add_general_model_args(p):
         '--activation', choices=['relu', 'gelu'], default='relu',
         help="Choice of activation function in the FFNN. Default: "
              "[%(default)s]")
+
+    g = p.add_argument_group("Transformer model: others")
+    g.add_argument(
+        '--normalize_directions', action='store_true',
+        help="If true, directions will be normalized. If the step size is "
+             "fixed, it shouldn't \nmake any difference. If streamlines are "
+             "compressed, in theory you should normalize, \nbut you could "
+             "hope that not normalizing could give back to the algorithm a \n"
+             "sense of distance between points.")
+    add_args_neighborhood(g)
+
     return gt
 
 
@@ -75,43 +97,18 @@ def add_src_tgt_attention_args(gt):
              "[3]: https://arxiv.org/pdf/1905.06596.pdf")
 
 
-def _perform_checks(args):
+def perform_checks(args):
     # Deal with your optional parameters:
     if args.dropout_rate < 0 or args.dropout_rate > 1:
         raise ValueError('The dropout rate must be between 0 and 1.')
-    if not args.ffnn_size:
-        args.ffnn_size = int(args.data_embedding_size / 2)
 
-    # check embedding choices.
-    if args.position_embedding == 'sinusoidal':
-        if ~args.max_seq:
-            raise ValueError("Sinusoidal embedding was chosen. Please define "
-                             "--max_seq.")
-    else:
-        if args.max_seq:
-            logging.warning("--max_seq was defined but embedding choice was "
-                            "not sinusoidal. max_seq is thus ignored.")
+    if not args.ffnn_hidden_size:
+        args.ffnn_hidden_size = int(args.d_model/ 2)
 
     # Prepare args for the direction getter
-    dg_dropout = args.dg_dropout if args.dg_dropout else \
-        args.dropout if args.dropout else 0
-    dg_args = {'dropout': dg_dropout}
-    if args.direction_getter_key == 'gaussian-mixture':
-        nb_gaussians = args.nb_gaussians if args.nb_gaussians else 3
-        dg_args.update({'nb_gaussians': nb_gaussians})
-    elif args.nb_gaussians:
-        logging.warning(
-            "You have provided a value for --nb_gaussians but the "
-            "chosen direction getter is not the gaussian mixture."
-            "Ignored.")
-    if args.direction_getter_key == 'fisher-von-mises-mixture':
-        nb_clusters = args.nb_clusters if args.nb_nb_clusters else 3
-        dg_args.update({'n_cluster': nb_clusters})
-    elif args.nb_clusters:
-        logging.warning(
-            "You have provided a value for --nb_clusters but the "
-            "chosen direction getter is not the Fisher von Mises "
-            "mixture. Ignored.")
+    if not args.dg_dropout and args.dropout_rate:
+        args.dg_dropout = args.dropout_rate
+    dg_args = check_args_direction_getter(args)
 
     # Prepare args for the neighborhood
     if args.grid_radius:
@@ -124,21 +121,30 @@ def _perform_checks(args):
         args.neighborhood_radius = None
         args.neighborhood_type = None
 
-    return dg_args, args
+    return args, dg_args
 
 
-def prepare_original_model(args):
-    dg_args, args = _perform_checks(args)
-
+def prepare_original_model(args, dg_args):
     with Timer("\n\nPreparing model", newline=True, color='yellow'):
         model = OriginalTransformerModel(
-            args.experiment_name, args.neighborhood_type,
-            args.neighborhood_radius, args.nb_features,
-            args.padding_length, args.positional_encoding_key,
-            args.x_embedding_key, args.t_embedding_key, args.d_model,
-            args.dim_ffnn, args.nheads, args.dropout_rate, args.activation,
-            args.n_layers_e, args.n_layers_d,
-            args.direction_getter_key, dg_args, args.normalize_directions)
+            experiment_name=args.experiment_name,
+            # Concerning inputs:
+            neighborhood_type=args.neighborhood_type,
+            neighborhood_radius=args.neighborhood_radius,
+            nb_features=args.nb_features,
+            # Concerning embedding:
+            padding_length=args.max_seq,
+            positional_encoding_key=args.position_encoding,
+            x_embedding_key=args.data_embedding,
+            t_embedding_key=args.target_embedding,
+            # Torch's transformer parameters
+            d_model=args.d_model, dim_ffnn=args.ffnn_hidden_size,
+            nheads=args.nheads, dropout_rate=args.dropout_rate,
+            activation=args.activation, n_layers_e=args.n_layers_e,
+            n_layers_d=args.n_layers_e,
+            # Direction getter
+            direction_getter_key=args.dg_key, dg_args=dg_args,
+            normalize_directions=args.normalize_directions)
 
         logging.info("Transformer (original) model final parameters:" +
                      format_dict_to_str(model.params_per_layer))
@@ -147,17 +153,17 @@ def prepare_original_model(args):
 
 
 def prepare_src_tgt_model(args):
-    dg_args, args = _perform_checks(args)
+    dg_args, args = perform_checks(args)
 
     with Timer("\n\nPreparing model", newline=True, color='yellow'):
         model = TransformerSourceAndTargetModel(
             args.experiment_name, args.neighborhood_type,
             args.neighborhood_radius, args.nb_features,
-            args.padding_length, args.positional_encoding_key,
-            args.x_embedding_key, args.t_embedding_key, args.d_model,
-            args.dim_ffnn, args.nheads, args.dropout_rate, args.activation,
-            args.n_layers_d, args.direction_getter_key, dg_args,
-            args.normalize_directions)
+            args.max_seq, args.position_encoding,
+            args.data_embedding, args.target_embedding, args.d_model,
+            args.ffnn_hidden_size, args.nheads, args.dropout_rate,
+            args.activation, args.n_layers_d, args.direction_getter_key,
+            dg_args, args.normalize_directions)
 
         logging.info("Transformer (src-tgt attention) model final "
                      "parameters:" +

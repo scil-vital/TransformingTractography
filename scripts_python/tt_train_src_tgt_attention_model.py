@@ -26,7 +26,7 @@ from dwi_ml.training.utils.trainer import (
 
 
 from TransformingTractography.models.utils import (
-    add_general_model_args, add_src_tgt_attention_args,
+    add_abstract_model_args, add_src_tgt_attention_args,
     prepare_src_tgt_model as prepare_model)
 from TransformingTractography.training.utils import prepare_trainer
 
@@ -46,7 +46,7 @@ def prepare_arg_parser():
     add_args_batch_loader(p)
     add_training_args(p)
 
-    gt = add_general_model_args(p)
+    gt = add_abstract_model_args(p)
     add_src_tgt_attention_args(gt)
 
     return p
