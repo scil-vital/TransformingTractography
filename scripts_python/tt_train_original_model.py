@@ -62,7 +62,6 @@ def init_from_args(p, args):
     input_group_idx = dataset.volume_groups.index(args.input_group_name)
     args.nb_features = dataset.nb_features[input_group_idx]
     model = prepare_original_model(args, dg_args)
-    exit(0)
 
     # Preparing the batch samplers
     args.wait_for_gpu = args.use_gpu

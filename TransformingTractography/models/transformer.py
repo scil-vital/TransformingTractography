@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
+import logging
+
 import torch
+from dwi_ml.data.processing.streamlines.post_processing import \
+    compute_and_normalize_directions
+from torch.nn import Dropout
 from torch.nn.functional import pad
 from torch.nn.modules.transformer import (
     Transformer,
@@ -12,7 +17,6 @@ from dwi_ml.models.direction_getter_models import keys_to_direction_getters
 
 from TransformingTractography.models.positional_encoding import \
     keys_to_positional_encodings
-from TransformingTractography.models.masks import prepare_masks_batch
 
 # Pour les masques:
 # https://stackoverflow.com/questions/68205894/how-to-prepare-data-for-tpytorchs-3d-attn-mask-argument-in-multiheadattention
@@ -20,7 +24,7 @@ from TransformingTractography.models.masks import prepare_masks_batch
 
 
 def forward_padding(data: torch.tensor, nb_pad):
-    return pad(data, (0, nb_pad))
+    return pad(data, (0, 0, 0, nb_pad))
 
 
 class AbstractTransformerModel(MainModelAbstract):
@@ -54,7 +58,7 @@ class AbstractTransformerModel(MainModelAbstract):
                  # Concerning inputs:
                  neighborhood_type: str, neighborhood_radius, nb_features: int,
                  # Concerning embeddings:
-                 padding_length, positional_encoding_key: str,
+                 max_len, positional_encoding_key: str,
                  x_embedding_key: str, t_embedding_key: str,
                  # Torch's transformer parameters
                  d_model: int = 4096, dim_ffnn: int = None, nheads: int = 8,
@@ -116,7 +120,7 @@ class AbstractTransformerModel(MainModelAbstract):
                          neighborhood_type, neighborhood_radius)
 
         self.nb_features = nb_features
-        self.padding_length = padding_length
+        self.max_len = max_len
         self.positional_encoding_key = positional_encoding_key
         self.embedding_key_x = x_embedding_key
         self.embedding_key_t = t_embedding_key
@@ -152,16 +156,18 @@ class AbstractTransformerModel(MainModelAbstract):
         # ----------- Instantiations
         # x embedding
         cls_x = keys_to_embeddings[self.embedding_key_x]
-        self.embedding_layer_x = cls_x(self.input_size,
-                                       output_size=self.d_model)
+        self.embedding_layer_x = cls_x(self.input_size, d_model)
+        # This dropout is only used in the embedding; torch's transformer
+        # prepares its own dropout elsewhere.
+        self.dropout = Dropout(self.dropout_rate)
 
         # positional embedding
         cls_p = keys_to_positional_encodings[self.positional_encoding_key]
-        self.embedding_layer_position = cls_p(1, output_size=self.d_model)
+        self.embedding_layer_position = cls_p(d_model, dropout_rate, max_len)
 
         # target embedding
         cls_t = keys_to_embeddings[self.embedding_key_t]
-        self.embedding_layer_t = cls_t(3, self.target_embedding_size)
+        self.embedding_layer_t = cls_t(3, d_model)
 
         # Last layer
         # Original paper: Linear + Softmax on nb of classes.
@@ -194,29 +200,46 @@ class AbstractTransformerModel(MainModelAbstract):
         })
         return p
 
-    def forward(self, batch_x, batch_t):
+    def forward(self, batch_x, batch_s):
         """
         Params
         ------
         batch_x, batch_t: list[Tensor]
             Of length nb_inputs.
         """
-        # Padding and embedding
+        batch_t = compute_and_normalize_directions(batch_s, self.device,
+                                                   self.normalize_directions)
+
+        # Padding
         formatted_x, formatted_t = \
             self._pad_and_concatenate_batch(batch_x, batch_t)
+        formatted_x.to(self.device)
+        formatted_t.to(self.device)
+
+        # Embedding
         embed_x, embed_t = self._embedding_and_positional_encoding_bloc(
             formatted_x, formatted_t)
 
         # Prepare mask
-        mask = prepare_masks_batch(batch_x, self.padding_length,
-                                   self.nheads)
+        mask, padded_masks = self._prepare_masks_batch(batch_x)
 
-        outputs = self._run_main_layer_forward()
+        outputs = self._run_main_layer_forward(embed_x, embed_t, mask,
+                                               padded_masks)
 
         # Direction getter
         formatted_outputs = self.direction_getter_layer(outputs)
 
         return formatted_outputs
+
+    def _prepare_masks_batch(self, batch_x):
+        future_mask = Transformer.generate_square_subsequent_mask(self.max_len)
+
+        batch_padded_masks = torch.zeros(len(batch_x), self.max_len)
+        for i in range(len(batch_x)):
+            x = batch_x[i]
+            batch_padded_masks[i, len(x):-1] = float('-inf')
+
+        return future_mask, batch_padded_masks
 
     def _pad_and_concatenate_batch(self, batch_x, batch_t):
         """
@@ -236,13 +259,13 @@ class AbstractTransformerModel(MainModelAbstract):
                 "Error, the input sequence and target sequence do not have " \
                 "the same length."
             nb_inputs = len(batch_x[s])
-            nb_pad_to_add = self.padding_length - nb_inputs
-            padded_inputs.append(forward_padding(batch_x, nb_pad_to_add))
-            padded_targets.append(forward_padding(batch_t, nb_pad_to_add))
+            nb_pad_to_add = self.max_len - nb_inputs
+            padded_inputs.append(forward_padding(batch_x[s], nb_pad_to_add))
+            padded_targets.append(forward_padding(batch_t[s], nb_pad_to_add))
 
-        # Concatenating on last dim.
-        formatted_x = torch.cat(padded_inputs, dim=-1)
-        formatted_t = torch.cat(padded_targets, dim=-1)
+        # Concatenating
+        formatted_x = torch.stack(padded_inputs)
+        formatted_t = torch.stack(padded_targets)
 
         return formatted_x, formatted_t
 
@@ -262,11 +285,12 @@ class AbstractTransformerModel(MainModelAbstract):
         x = self.dropout(x)
 
         # Embedding targets
-        if self.embedding_layer_t:
-            t = self.target_emb_layer(t)
+        t = self.embedding_layer_t(t) + self.embedding_layer_position(t)
+        t = self.dropout(t)
+
         return x, t
 
-    def _run_main_layer_forward(self, embed_x, embed_t, mask):
+    def _run_main_layer_forward(self, embed_x, embed_t, mask, padded_masks):
         raise NotImplementedError
 
     def compute_loss(self, model_outputs, streamlines, device):
@@ -320,7 +344,7 @@ class OriginalTransformerModel(AbstractTransformerModel):
                  # Concerning inputs:
                  neighborhood_type, neighborhood_radius, nb_features,
                  # Concerning embedding:
-                 padding_length, positional_encoding_key: str,
+                 max_len, positional_encoding_key: str,
                  x_embedding_key: str, t_embedding_key: str,
                  # Torch's transformer parameters
                  d_model: int = 4096, dim_ffnn: int = None, nheads: int = 8,
@@ -340,7 +364,7 @@ class OriginalTransformerModel(AbstractTransformerModel):
             Number of encoding layers in the decoder. [6]
         """
         super().__init__(experiment_name, neighborhood_type,
-                         neighborhood_radius, nb_features, padding_length,
+                         neighborhood_radius, nb_features, max_len,
                          positional_encoding_key, x_embedding_key,
                          t_embedding_key, d_model, dim_ffnn, nheads,
                          dropout_rate, activation, direction_getter_key,
@@ -351,22 +375,24 @@ class OriginalTransformerModel(AbstractTransformerModel):
         self.n_layers_d = n_layers_d
 
         # ----------- Additional instantiations
+        logging.info("Instantiating torch transformer, may take a few "
+                     "seconds...")
         # Encoder:
         encoder_layer = TransformerEncoderLayer(
             self.d_model, self.nheads, dim_ffnn, self.dropout_rate,
-            self.activation)
+            self.activation, batch_first=True)
         encoder = TransformerEncoder(encoder_layer, n_layers_e, norm=None)
 
         # Decoder
         decoder_layer = TransformerDecoderLayer(
             self.d_model, self.nheads, dim_ffnn, self.dropout_rate,
-            self.activation)
+            self.activation, batch_first=True)
         decoder = TransformerDecoder(decoder_layer, n_layers_d, norm=None)
 
         self.transformer_layer = Transformer(
             d_model, nheads, n_layers_e, n_layers_d, dim_ffnn,
             dropout_rate, activation, encoder, decoder,
-            self.layer_norm, self.batch_first, self.norm_first)
+            self.layer_norm, batch_first=True, norm_first=False)
 
     @property
     def params(self):
@@ -377,11 +403,16 @@ class OriginalTransformerModel(AbstractTransformerModel):
         })
         return p
 
-    def _run_main_layer_forward(self, embed_x, embed_t, mask):
+    def _run_main_layer_forward(self, embed_x, embed_t, mask, padded_mask):
         """Original Main transformer"""
+
         outputs = self.transformer_layer(
             src=embed_x, tgt=embed_t,
-            src_mask=mask, tgt_mask=mask, memory_mask=mask)
+            src_mask=mask, tgt_mask=mask, memory_mask=mask,
+            src_key_padding_mask=padded_mask,
+            tgt_key_padding_mask=padded_mask,
+            memory_key_padding_mask=padded_mask)
+
         return outputs
 
 
@@ -413,7 +444,7 @@ class TransformerSourceAndTargetModel(AbstractTransformerModel):
                  # Concerning inputs:
                  neighborhood_type, neighborhood_radius, nb_features,
                  # Concerning embedding:
-                 padding_length, positional_encoding_key: str,
+                 max_len, positional_encoding_key: str,
                  x_embedding_key: str, t_embedding_key: str,
                  # Torch's transformer parameters
                  d_model: int = 4096, dim_ffnn: int = None, nheads: int = 8,
@@ -431,7 +462,7 @@ class TransformerSourceAndTargetModel(AbstractTransformerModel):
             Number of encoding layers in the decoder. [6]
         """
         super().__init__(experiment_name, neighborhood_type,
-                         neighborhood_radius, nb_features, padding_length,
+                         neighborhood_radius, nb_features, max_len,
                          positional_encoding_key, x_embedding_key,
                          t_embedding_key, d_model, dim_ffnn, nheads,
                          dropout_rate, activation, direction_getter_key,
@@ -453,19 +484,21 @@ class TransformerSourceAndTargetModel(AbstractTransformerModel):
         self._instantiate_direction_getter(self.transformer_layer.output_size,
                                            dg_args)
 
-    def _run_main_layer_forward(self, embed_x, embed_t, mask):
+    def _run_main_layer_forward(self, embed_x, embed_t, mask, padded_mask):
 
         # Concatenating x and t
         inputs = torch.cat((embed_x, embed_t), dim=-1)
         self.logger.debug("Concatenated [src | tgt] shape: {}"
                           .format(inputs.shape))
 
-        # Doubling the mask
+        # Doubling the masks
         double_mask = torch.cat((mask, mask), dim=-1)
+        double_padded_mask = torch.cat((padded_mask, padded_mask), dim=-1)
         self.logger.debug("Concatenated mask shape: {}".format(inputs.shape))
 
         # Main transformer
-        outputs = self.main_layer(src=inputs, src_mask=double_mask)
+        outputs = self.main_layer(src=inputs, src_mask=double_mask,
+                                  src_key_padding_mask=double_padded_mask)
 
         # Take the second half of model outputs to direction getter
         # (the last skip-connection makes more sense this way)

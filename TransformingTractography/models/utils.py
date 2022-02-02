@@ -38,7 +38,7 @@ def add_abstract_model_args(p):
         help="Output size that will kept constant in all layers to allow skip "
              "connections (embedding size, ffnn output size, attention size)")
     p.add_argument(
-        '--max_seq', type=int, default=1000,
+        '--max_len', type=int, default=1000,
         help="Longest sequence allowed. Other sequences will be zero-padded "
              "up to that length\n (but attention can't attend to padded "
              "timepoints).\n Also used with sinusoidal position embedding.\n"
@@ -133,7 +133,7 @@ def prepare_original_model(args, dg_args):
             neighborhood_radius=args.neighborhood_radius,
             nb_features=args.nb_features,
             # Concerning embedding:
-            padding_length=args.max_seq,
+            max_len=args.max_len,
             positional_encoding_key=args.position_encoding,
             x_embedding_key=args.data_embedding,
             t_embedding_key=args.target_embedding,
@@ -147,7 +147,7 @@ def prepare_original_model(args, dg_args):
             normalize_directions=args.normalize_directions)
 
         logging.info("Transformer (original) model final parameters:" +
-                     format_dict_to_str(model.params_per_layer))
+                     format_dict_to_str(model.params))
 
     return model
 
@@ -157,16 +157,27 @@ def prepare_src_tgt_model(args):
 
     with Timer("\n\nPreparing model", newline=True, color='yellow'):
         model = TransformerSourceAndTargetModel(
-            args.experiment_name, args.neighborhood_type,
-            args.neighborhood_radius, args.nb_features,
-            args.max_seq, args.position_encoding,
-            args.data_embedding, args.target_embedding, args.d_model,
-            args.ffnn_hidden_size, args.nheads, args.dropout_rate,
-            args.activation, args.n_layers_d, args.direction_getter_key,
-            dg_args, args.normalize_directions)
+            experiment_name=args.experiment_name,
+            # Concerning inputs:
+            neighborhood_type=args.neighborhood_type,
+            neighborhood_radius=args.neighborhood_radius,
+            nb_features=args.nb_features,
+            # Concerning embedding:
+            max_len=args.max_len,
+            positional_encoding_key=args.position_encoding,
+            x_embedding_key=args.data_embedding,
+            t_embedding_key=args.target_embedding,
+            # Torch's transformer parameters
+            d_model=args.d_model, dim_ffnn=args.ffnn_hidden_size,
+            nheads=args.nheads, dropout_rate=args.dropout_rate,
+            activation=args.activation,
+            n_layers_d=args.n_layers_e,
+            # Direction getter
+            direction_getter_key=args.dg_key, dg_args=dg_args,
+            normalize_directions=args.normalize_directions)
 
         logging.info("Transformer (src-tgt attention) model final "
                      "parameters:" +
-                     format_dict_to_str(model.params_per_layer))
+                     format_dict_to_str(model.params))
 
     return model
