@@ -3,8 +3,6 @@
 
 """
 Train a model.
-
-See an example of the yaml file in the parameters folder.
 """
 import argparse
 import logging
