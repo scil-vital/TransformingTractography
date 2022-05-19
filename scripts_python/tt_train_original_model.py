@@ -9,6 +9,8 @@ import logging
 import os
 from os import path
 
+from dwi_ml.experiment_utils.prints import format_dict_to_str
+from dwi_ml.experiment_utils.timer import Timer
 from scilpy.io.utils import assert_inputs_exist, assert_outputs_exist
 
 from dwi_ml.data.dataset.utils import (
@@ -24,10 +26,10 @@ from dwi_ml.training.utils.experiment import (
     add_printing_args_training_experiment)
 from dwi_ml.training.utils.trainer import add_training_args, run_experiment
 
-
 from TransformingTractography.models.utils import (
     add_abstract_model_args, add_original_model_args,
     perform_checks, prepare_original_model)
+from TransformingTractography.training.trainers import TransformerTrainer
 from TransformingTractography.training.utils import prepare_trainer
 
 
@@ -53,30 +55,55 @@ def prepare_arg_parser():
     return p
 
 
-def init_from_args(p, args):
+def init_from_args(args):
     # Prepare the dataset
     dataset = prepare_multisubjectdataset(args, load_testing=False)
 
     # Preparing the model
+    # (general args)
     args, dg_args = perform_checks(args)
+    # (nb features)
     input_group_idx = dataset.volume_groups.index(args.input_group_name)
     args.nb_features = dataset.nb_features[input_group_idx]
+    # Final model
     model = prepare_original_model(args, dg_args)
+
+    # Setting log level to INFO maximum for sub-loggers, else it become ugly
+    sub_loggers_level = args.logging_choice
+    if args.logging_choice == 'DEBUG':
+        sub_loggers_level = 'INFO'
 
     # Preparing the batch samplers
     args.wait_for_gpu = args.use_gpu
     training_batch_sampler, validation_batch_sampler = \
-        prepare_batchsamplers_train_valid(dataset, args, args)
+        prepare_batchsamplers_train_valid(dataset, args, args,
+                                          sub_loggers_level)
 
     # Preparing the batch loaders
     args.neighborhood_points = model.neighborhood_points
     training_batch_loader, validation_batch_loader = \
-        prepare_batchloadersoneinput_train_valid(dataset, args, args)
+        prepare_batchloadersoneinput_train_valid(dataset, args, args,
+                                                 sub_loggers_level)
 
-    # Preparing the trainer
-    trainer = prepare_trainer(training_batch_sampler, validation_batch_sampler,
-                              training_batch_loader, validation_batch_loader,
-                              model, args)
+    # Instantiate trainer
+    with Timer("\n\nPreparing trainer", newline=True, color='red'):
+        trainer = TransformerTrainer(
+            training_batch_sampler, validation_batch_sampler,
+            training_batch_loader, validation_batch_loader,
+            model,
+            args.experiment_path, args.experiment_name,
+            # COMET
+            comet_project=args.comet_project,
+            comet_workspace=args.comet_workspace,
+            # TRAINING
+            learning_rate=args.learning_rate, max_epochs=args.max_epochs,
+            max_batches_per_epoch=args.max_batches_per_epoch,
+            patience=args.patience, from_checkpoint=False,
+            weight_decay=args.weight_decay,
+            # MEMORY
+            nb_cpu_processes=args.processes,
+            taskman_managed=args.taskman_managed, use_gpu=args.use_gpu)
+        logging.info("Trainer params : " + format_dict_to_str(trainer.params))
 
     return trainer
 
@@ -103,7 +130,7 @@ def main():
         raise FileExistsError("This experiment already exists. Delete or use "
                               "script resume_training_from_checkpoint.py.")
 
-    trainer = init_from_args(p, args)
+    trainer = init_from_args(args)
 
     run_experiment(trainer, args.logging_choice)
 

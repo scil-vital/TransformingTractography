@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 import logging
 
-import numpy as np
 import torch
-from torch.utils.data.dataloader import DataLoader
 
 from dwi_ml.training.batch_samplers import DWIMLBatchSampler
 from dwi_ml.training.batch_loaders import BatchLoaderOneInput
@@ -15,93 +13,38 @@ from TransformingTractography.models.transformer import \
 
 class TransformerTrainer(DWIMLTrainerOneInput):
     def __init__(self,
+                 model: AbstractTransformerModel, experiments_path: str,
+                 experiment_name: str,
                  batch_sampler_training: DWIMLBatchSampler,
-                 batch_sampler_validation: DWIMLBatchSampler,
                  batch_loader_training: BatchLoaderOneInput,
-                 batch_loader_validation: BatchLoaderOneInput,
-                 model: AbstractTransformerModel, experiment_path: str,
-                 experiment_name: str, learning_rate: float,
-                 weight_decay: float, max_epochs: int,
-                 max_batches_per_epoch: int, patience: int,
-                 nb_cpu_processes: int, taskman_managed: bool, use_gpu: bool,
-                 comet_workspace: str, comet_project: str,
-                 from_checkpoint: bool):
-        super().__init__(batch_sampler_training, batch_sampler_validation,
-                         batch_loader_training, batch_loader_validation,
-                         model, experiment_path, experiment_name,
+                 batch_sampler_validation: DWIMLBatchSampler = None,
+                 batch_loader_validation: BatchLoaderOneInput = None,
+                 learning_rate: float = 0.001,
+                 weight_decay: float = 0.01, max_epochs: int = 10,
+                 max_batches_per_epoch: int = 1000, patience: int = None,
+                 nb_cpu_processes: int = 0, taskman_managed: bool = False,
+                 use_gpu: bool = False, comet_workspace: str = None,
+                 comet_project: str = None, from_checkpoint: bool = False,
+                 log_level=logging.root.level):
+        """
+        See Super for parameter description. No additional parameters here.
+        """
+        super().__init__(model, experiments_path, experiment_name,
+                         batch_sampler_training, batch_loader_training,
+                         batch_sampler_validation, batch_loader_validation,
                          learning_rate, weight_decay, max_epochs,
                          max_batches_per_epoch, patience,
                          nb_cpu_processes, taskman_managed, use_gpu,
                          comet_workspace, comet_project,
-                         from_checkpoint)
-
-    # Batch size:
-    # Copying this from learn2track. many todos. Let's see if it gets
-    # modified.
-    def estimate_nb_batches_per_epoch(self):
-        logging.info("Learn2track: Estimating training epoch statistics...")
-        n_train_batches_capped, _ = self._estimate_nb_batches_per_epoch(
-            self.train_batch_sampler, self.train_batch_loader)
-
-        n_valid_batches_capped = None
-        if self.valid_batch_sampler is not None:
-            logging.info("Learn2track: Estimating validation epoch "
-                         "statistics...")
-            n_valid_batches_capped, _ = self._estimate_nb_batches_per_epoch(
-                self.valid_batch_sampler, self.valid_batch_loader)
-
-        return n_train_batches_capped, n_valid_batches_capped
-
-    def _estimate_nb_batches_per_epoch(self, batch_sampler: DWIMLBatchSampler,
-                                       batch_loader: BatchLoaderOneInput):
-        """
-        Compute the number of batches necessary to use all the available data
-        for an epoch (but limiting this to max_nb_batches).
-
-        Returns
-        -------
-        n_batches : int
-            Approximate number of updates per epoch
-        batch_size : int
-            Batch size or approximate batch size.
-        """
-        # Here, 'batch_size' will be computed in terms of number of
-        # streamlines.
-        dataset_size = batch_sampler.dataset.total_nb_streamlines[
-            batch_sampler.streamline_group_idx]
-
-        if batch_sampler.batch_size_units == 'nb_streamlines':
-            # Then the batch size may actually be different, if some
-            # streamlines were split during data augmentation. But still, to
-            # use all the data in one epoch, we simply need to devide the
-            # dataset_size by this:
-            batch_size = batch_sampler.batch_size
-        else:  # batch_sampler.batch_size_units == 'length_mm':
-            # Then the batch size is more or less exact (with the added
-            # gaussian noise possibly changing this a little bit but not much).
-            # But we don't know the actual size in number of streamlines.
-            raise NotImplementedError
-
-        # Define the number of batches per epoch
-        n_batches = int(dataset_size / batch_size)
-        n_batches_capped = min(n_batches, self.max_batches_per_epochs)
-
-        logging.info("Dataset had {} streamlines (before data augmentation) "
-                     "and each batch contains ~{} streamlines.\nWe will be "
-                     "using approximately {} batches per epoch (but not more "
-                     "than the allowed {}).\n"
-                     .format(dataset_size, batch_size, n_batches,
-                             self.max_batches_per_epochs))
-
-        return n_batches_capped, batch_size
+                         from_checkpoint, log_level)
 
     @classmethod
     def init_from_checkpoint(
-            cls, train_batch_sampler: DWIMLBatchSampler,
-            valid_batch_sampler: DWIMLBatchSampler,
+            cls, model: AbstractTransformerModel, experiments_path,
+            experiment_name, train_batch_sampler: DWIMLBatchSampler,
             train_batch_loader: BatchLoaderOneInput,
+            valid_batch_sampler: DWIMLBatchSampler,
             valid_batch_loader: BatchLoaderOneInput,
-            model: AbstractTransformerModel,
             checkpoint_state: dict, new_patience, new_max_epochs):
         """
         During save_checkpoint(), checkpoint_state.pkl is saved. Loading it
@@ -111,12 +54,41 @@ class TransformerTrainer(DWIMLTrainerOneInput):
 
         # Use super's method but return this transformer trainer as 'cls'.
         experiment = super(cls, cls).init_from_checkpoint(
-            train_batch_sampler, valid_batch_sampler,
-            train_batch_loader, valid_batch_loader, model,
+            model, experiments_path, experiment_name,
+            train_batch_sampler, train_batch_loader,
+            valid_batch_sampler, valid_batch_loader,
             checkpoint_state, new_patience, new_max_epochs)
 
         return experiment
 
     def run_model(self, batch_inputs, batch_streamlines):
-        model_outputs = self.model(batch_inputs, batch_streamlines)
-        return model_outputs
+        dirs = self.model.format_directions(batch_streamlines, self.device)
+
+        # Formatting the previous dirs for all points.
+        n_prev_dirs = self.model.format_previous_dirs(dirs, self.device)
+
+        # Not keeping the last point: only useful to get the last direction
+        # (last target), but won't be used as an input.
+        if n_prev_dirs is not None:
+            n_prev_dirs = [s[:-1] for s in n_prev_dirs]
+
+        try:
+            # Apply model. This calls our model's forward function
+            # (the hidden states are not used here, neither as input nor
+            # outputs. We need them only during tracking).
+            model_outputs, _ = self.model(batch_inputs, n_prev_dirs,
+                                          self.device)
+        except RuntimeError:
+            # Training RNNs with variable-length sequences on the GPU can
+            # cause memory fragmentation in the pytorch-managed cache,
+            # possibly leading to "random" OOM RuntimeError during
+            # training. Emptying the GPU cache seems to fix the problem for
+            # now. We don't do it every update because it can be time
+            # consuming.
+            torch.cuda.empty_cache()
+            model_outputs, _ = self.model(batch_inputs, n_prev_dirs,
+                                          self.device)
+
+        # Returning the directions too, to be re-used in compute_loss
+        # later instead of computing them twice.
+        return model_outputs, dirs
