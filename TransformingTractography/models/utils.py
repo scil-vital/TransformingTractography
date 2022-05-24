@@ -143,7 +143,7 @@ def prepare_original_model(args, dg_args):
             activation=args.activation, n_layers_e=args.n_layers_e,
             n_layers_d=args.n_layers_e,
             # Direction getter
-            direction_getter_key=args.dg_key, dg_args=dg_args,
+            dg_key=args.dg_key, dg_args=dg_args,
             normalize_directions=args.normalize_directions)
 
         logging.info("Transformer (original) model final parameters:" +
@@ -173,7 +173,7 @@ def prepare_src_tgt_model(args):
             activation=args.activation,
             n_layers_d=args.n_layers_e,
             # Direction getter
-            direction_getter_key=args.dg_key, dg_args=dg_args,
+            dg_key=args.dg_key, dg_args=dg_args,
             normalize_directions=args.normalize_directions)
 
         logging.info("Transformer (src-tgt attention) model final "
