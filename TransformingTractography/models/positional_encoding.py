@@ -56,12 +56,12 @@ class SinusoidalPositionalEncoding(AbstractPositionalEncoding):
         # CPU whenever the module is. That is the use of a "buffer".
         self.register_buffer('pos_emb', pos_emb)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x_size) -> torch.Tensor:
         """
         Args:
-            x: Tensor, shape [seq_len, batch_size, embedding_dim]
+            x_size: x.size(0) when x is a tensor.
         """
-        return self.pos_emb[:x.size(0)]
+        return self.pos_emb[:x_size]
 
 
 class RelationalSinusoidalPosEncoding(AbstractPositionalEncoding):

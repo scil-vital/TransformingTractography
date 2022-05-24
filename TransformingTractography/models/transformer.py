@@ -13,8 +13,7 @@ from torch.nn.modules.transformer import (
 from dwi_ml.models.main_models import MainModelWithPD
 from dwi_ml.models.embeddings_on_tensors import keys_to_embeddings
 from dwi_ml.models.direction_getter_models import keys_to_direction_getters
-from torch.nn.utils.rnn import pack_sequence, PackedSequence, \
-    pad_packed_sequence
+from torch.nn.utils.rnn import pack_sequence, PackedSequence, unpack_sequence
 
 from TransformingTractography.models.positional_encoding import \
     keys_to_positional_encodings
@@ -27,6 +26,7 @@ logger = logging.getLogger('model_logger')  # Same logger as Super.
 
 
 def forward_padding(data: torch.tensor, nb_pad):
+    # data: tensor of size
     return pad(data, (0, 0, 0, nb_pad))
 
 
@@ -54,6 +54,7 @@ class AbstractTransformerModel(MainModelWithPD):
     with a neural network.
     """
     batch_first = True  # If True, then the input and output tensors are
+
     # provided as (batch, seq, feature). If False, (seq, batch, feature).
 
     def __init__(self,
@@ -110,6 +111,7 @@ class AbstractTransformerModel(MainModelWithPD):
             The transformer REQUIRES the same output dimension for each layer
             everywhere to allow skip connections. = d_model. Note that
             embeddings should also produce outputs of size d_model.
+            Value must be divisible by num_heads.
             Default: 4096.
         dim_ffnn: int
             Size of the feed-forward neural network (FFNN) layer in the encoder
@@ -188,7 +190,13 @@ class AbstractTransformerModel(MainModelWithPD):
 
         # 2. x embedding
         cls_x = keys_to_embeddings[self.embedding_key_x]
-        self.embedding_layer_x = cls_x(self.input_size, d_model)
+        # output will be concatenated with prev_dir embedding and total must
+        # be d_model.
+        if self.nb_previous_dirs > 0:
+            embed_size = d_model - self.prev_dirs_embedding_size
+        else:
+            embed_size = d_model
+        self.embedding_layer_x = cls_x(self.input_size, embed_size)
         # This dropout is only used in the embedding; torch's transformer
         # prepares its own dropout elsewhere.
         self.dropout = Dropout(self.dropout_rate)
@@ -233,7 +241,7 @@ class AbstractTransformerModel(MainModelWithPD):
         })
         return p
 
-    def forward(self, batch_x, batch_streamlines, version=2):
+    def forward(self, batch_x, batch_streamlines, version=1):
         """
         Params
         ------
@@ -247,15 +255,17 @@ class AbstractTransformerModel(MainModelWithPD):
             # PackedSequence's data. It would run faster (no need to run a
             # bunch of zeros + concatenated with previous dir's embedding more
             # easily.
-            self.run_embbedding_version1()
+            embed_x, embed_t = self.run_embedding_version1(batch_x, dirs)
         else:
             # Or, we do like in original paper. Run on padded data. As
             # explained in doc above, probably necessary to make the model
             # learn embedding on whole padded sequence so that it can adapt for
             # the positional encoding.
-            embed_x, embed_t = self.run_embbeding_version2(batch_x, dirs)
+            embed_x, embed_t = self.run_embeding_version2(batch_x, dirs)
+        embed_x = self.dropout(embed_x)
+        embed_t = self.dropout(embed_t)
 
-        logger.debug("*** 4. Transformer (on packed sequence!)....")
+        logger.debug("*** 5. Transformer....")
 
         # Prepare mask
         mask, padded_masks = self._prepare_masks_batch(batch_x)
@@ -268,43 +278,102 @@ class AbstractTransformerModel(MainModelWithPD):
 
         return formatted_outputs
 
+    def _pad_and_stack_batch(self, batch_x, batch_t):
+        padded_inputs = []
+        padded_targets = []
+        for i in range(len(batch_x)):
+            assert len(batch_x[i]) == len(batch_t[i]), \
+                "Error, the input sequence and target sequence do not have " \
+                "the same length."
+            nb_inputs = len(batch_x[i])
+            nb_pad_to_add = self.max_len - nb_inputs
+            padded_inputs.append(forward_padding(batch_x[i], nb_pad_to_add))
+            logger.debug("Final data shape for this streamline: {}"
+                         .format(padded_inputs[-1].shape))
+            padded_targets.append(forward_padding(batch_t[i], nb_pad_to_add))
+
+        formatted_x = torch.stack(padded_inputs).to(self.device)
+        formatted_t = torch.stack(padded_targets).to(self.device)
+
+        return formatted_x, formatted_t
+
     def run_embedding_version1(self, batch_x, dirs):
+        nb_streamlines = len(batch_x)
+
         # Packing inputs and saving info
         inputs = pack_sequence(batch_x, enforce_sorted=False).to(self.device)
+        targets = pack_sequence(dirs, enforce_sorted=False).to(self.device)
         batch_sizes = inputs.batch_sizes
         sorted_indices = inputs.sorted_indices
         unsorted_indices = inputs.unsorted_indices
+        nb_input_points = len(inputs.data)
 
-        # RUNNING THE MODEL
-        logger.debug("*** 1. Previous dir embedding, if any "
+        logger.debug("Preparing the {} points for this batch (total for the "
+                     "{} streamlines)".format(nb_input_points, nb_streamlines))
+
+        logger.debug("*** 1.A. Previous dir embedding, if any "
                      "(on packed_sequence's tensor!)...")
         n_prev_dirs_embedded = super().run_prev_dirs_embedding_layer(
-            dirs, unpack_results=False).to(self.device)
+            dirs, unpack_results=False)\
 
-        logger.debug("*** 2. Inputs embedding (on packed_sequence's "
+        logger.debug("*** 1.B. Inputs embedding (on packed_sequence's "
                      "tensor!)...")
-        logger.debug("Input size: {}".format(inputs.data.shape[-1]))
-        inputs = self.input_embedding(inputs.data)
-        logger.debug("Output size: {}".format(inputs.shape[-1]))
+        logger.debug("Nb features per point: {}".format(inputs.data.shape[-1]))
+        inputs = self.embedding_layer_x(inputs.data)
+        logger.debug("Embedded size: {}".format(inputs.shape[-1]))
 
-        logger.debug("*** 3. Concatenating previous dirs and inputs's "
+        logger.debug("*** 1.C. Targets embedding (on packed_sequence's "
+                     "tensor!)...")
+        logger.debug("Target (3 coords): {}".format(targets.data.shape[-1]))
+        targets = self.embedding_layer_t(targets.data)
+        logger.debug("Target embedded size: {}".format(targets.shape[-1]))
+        # Unpacking
+        targets = PackedSequence(targets, batch_sizes, sorted_indices,
+                                 unsorted_indices)
+        targets = unpack_sequence(targets)
+
+        logger.debug("*** 2. Concatenating previous dirs and inputs's "
                      "embeddings...")
         if n_prev_dirs_embedded is not None:
             inputs = torch.cat((inputs, n_prev_dirs_embedded), dim=-1)
             logger.debug("Concatenated shape: {}".format(inputs.shape))
+        logger.debug("Input final size: {}".format(inputs.shape[-1]))
+        # Unpacking
         inputs = PackedSequence(inputs, batch_sizes, sorted_indices,
                                 unsorted_indices)
+        inputs = unpack_sequence(inputs)
 
-    def run_embedding_version2(self, batch_x, dirs):
-        # Padding
-        formatted_x, formatted_t = \
-            self._pad_and_concatenate_batch(batch_x, dirs)
-        formatted_x.to(self.device)
-        formatted_t.to(self.device)
+        logger.debug("*** 3. Padding and arranging...")
+        inputs, targets = self._pad_and_stack_batch(inputs, targets)
 
-        logger.debug("*** 5. Positional encoding.")
-        embed_x, embed_t = self._embedding_and_positional_encoding_bloc(
-            formatted_x, formatted_t)
+        logger.debug("*** 4. Positional encoding")
+        inputs += self.embedding_layer_position(inputs.size(0))
+        targets += self.embedding_layer_position(targets.size(0))
+
+        return inputs, targets
+
+    def run_embedding_version2(self, batch_x, batch_t):
+
+        assert len(batch_x) == len(batch_t), \
+            "Error, the batch does not contain the same number of inputs " \
+            "and targets..."
+
+        logger.debug("*** 1. Padding and arranging.")
+
+        formatted_x, formatted_y = self._pad_and_stack_batch(padded_inputs,
+                                                             padded_targets)
+
+        logger.debug("*** 2. Concatenating")
+
+
+        logger.debug("*** 3 and 4: Embedding + positional encoding.")
+        embed_x = self.embedding_layer_x(formatted_x) + \
+            self.embedding_layer_position(formatted_x)
+
+        # Embedding targets
+        embed_t = self.embedding_layer_t(formatted_t) + \
+            self.embedding_layer_position(formatted_t)
+
         return embed_x, embed_t
 
     def _prepare_masks_batch(self, batch_x):
@@ -316,56 +385,6 @@ class AbstractTransformerModel(MainModelWithPD):
             batch_padded_masks[i, len(x):-1] = float('-inf')
 
         return future_mask, batch_padded_masks
-
-    def _pad_and_concatenate_batch(self, batch_x, batch_t):
-        """
-        Padding all streamlines to self.padding_length.
-        Concatenating batch on last dim. This is why batch_first = True,
-        final result should be of size (batch, seq, feature).
-        """
-        assert len(batch_x) == len(batch_t), \
-            "Error, the batch does not contain the same number of inputs " \
-            "and targets..."
-
-        # Padding
-        padded_inputs = []
-        padded_targets = []
-        for s in range(len(batch_x)):
-            assert len(batch_x[s]) == len(batch_t[s]), \
-                "Error, the input sequence and target sequence do not have " \
-                "the same length."
-            nb_inputs = len(batch_x[s])
-            nb_pad_to_add = self.max_len - nb_inputs
-            padded_inputs.append(forward_padding(batch_x[s], nb_pad_to_add))
-            padded_targets.append(forward_padding(batch_t[s], nb_pad_to_add))
-
-        # Concatenating
-        formatted_x = torch.stack(padded_inputs)
-        formatted_t = torch.stack(padded_targets)
-
-        return formatted_x, formatted_t
-
-    def _embedding_and_positional_encoding_bloc(self, x, t):
-        """
-        First step of the forward pass.
-
-        Params
-        ------
-        x: Tensor
-            Input. Last dim should be of size self.input_size.
-        t: Tensor
-            Targets. Should be padded sequences of size [max_seq, 3].
-        """
-        # In paper: embedding is done one padded sequence.
-        # Embedding (data + positional)
-        x = self.embedding_layer_x(x) + self.embedding_layer_position(x)
-        x = self.dropout(x)
-
-        # Embedding targets
-        t = self.embedding_layer_t(t) + self.embedding_layer_position(t)
-        t = self.dropout(t)
-
-        return x, t
 
     def _run_main_layer_forward(self, embed_x, embed_t, mask, padded_masks):
         raise NotImplementedError
@@ -413,6 +432,7 @@ class OriginalTransformerModel(AbstractTransformerModel):
     """
     layer_norm = 1e-5  # epsilon value for the normalization sub-layers
     norm_first = False  # If True, encoder and decoder layers will perform
+
     # LayerNorms before other attention and feedforward operations, otherwise
     # after. Torch default + in original paper: False.
 
@@ -464,19 +484,14 @@ class OriginalTransformerModel(AbstractTransformerModel):
         encoder_layer = TransformerEncoderLayer(
             self.d_model, self.nheads, self.dim_ffnn, self.dropout_rate,
             self.activation, batch_first=True, norm_first=self.norm_first)
-        logger.debug("Instantiating the encoder with {} encoder layers..."
-                     .format(n_layers_e))
         encoder = TransformerEncoder(encoder_layer, n_layers_e, norm=None)
 
         # Decoder
         decoder_layer = TransformerDecoderLayer(
             self.d_model, self.nheads, self.dim_ffnn, self.dropout_rate,
             self.activation, batch_first=True, norm_first=self.norm_first)
-        logger.debug("Instantiating the decoder with {} decoder layers..."
-                     .format(n_layers_d))
         decoder = TransformerDecoder(decoder_layer, n_layers_d, norm=None)
 
-        logger.debug("Instantiating transformer...")
         self.transformer_layer = Transformer(
             d_model, nheads, n_layers_e, n_layers_d, dim_ffnn,
             dropout_rate, activation, encoder, decoder,
@@ -527,6 +542,7 @@ class TransformerSourceAndTargetModel(AbstractTransformerModel):
                                              [ emb_choice_x ; emb_choice_y ]
 
     """
+
     def __init__(self, experiment_name: str, nb_features: int,
                  # PREVIOUS DIRS
                  nb_previous_dirs: int = 0,
@@ -577,7 +593,6 @@ class TransformerSourceAndTargetModel(AbstractTransformerModel):
                                              norm=None)
 
     def _run_main_layer_forward(self, embed_x, embed_t, mask, padded_mask):
-
         # Concatenating x and t
         inputs = torch.cat((embed_x, embed_t), dim=-1)
         logger.debug("Concatenated [src | tgt] shape: {}".format(inputs.shape))
