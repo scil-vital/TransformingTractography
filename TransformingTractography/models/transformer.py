@@ -65,8 +65,8 @@ class AbstractTransformerModel(MainModelWithPD):
                  # INPUTS
                  max_len: int = 3500,
                  positional_encoding_key: str = 'sinusoidal',
-                 x_embedding_key: str = 'no_embedding',
-                 t_embedding_key: str = 'no_embedding',
+                 x_embedding_key: str = 'nn_embedding',
+                 t_embedding_key: str = 'nn_embedding',
                  # TRANSFORMER
                  d_model: int = 4096, dim_ffnn: int = None, nheads: int = 8,
                  dropout_rate: float = 0.1, activation: str = 'relu',
@@ -210,7 +210,7 @@ class AbstractTransformerModel(MainModelWithPD):
         # on a kaiming uniform, same as uniform(-sqrt(k), sqrt(k)) where k is
         # the nb of features.
         cls_dg = keys_to_direction_getters[self.dg_key]
-        self.direction_getter_layer = cls_dg(d_model, **dg_args)
+        self.direction_getter_layer = cls_dg(d_model, **self.dg_args)
 
     @property
     def params(self):
@@ -416,22 +416,27 @@ class OriginalTransformerModel(AbstractTransformerModel):
     # LayerNorms before other attention and feedforward operations, otherwise
     # after. Torch default + in original paper: False.
 
-    def __init__(self,
-                 experiment_name: str, nb_features: str,
-                 # Concerning embedding:
-                 max_len, positional_encoding_key: str,
-                 x_embedding_key: str, t_embedding_key: str,
-                 # Torch's transformer parameters
+    def __init__(self, experiment_name: str, nb_features: int,
+                 # PREVIOUS DIRS
+                 nb_previous_dirs: int = 0,
+                 prev_dirs_embedding_size: int = None,
+                 prev_dirs_embedding_key: str = None,
+                 # INPUTS
+                 max_len: int = 3500,
+                 positional_encoding_key: str = 'sinusoidal',
+                 x_embedding_key: str = 'nn_embedding',
+                 t_embedding_key: str = 'nn_embedding',
+                 # TRANSFORMER
                  d_model: int = 4096, dim_ffnn: int = None, nheads: int = 8,
                  dropout_rate: float = 0.1, activation: str = 'relu',
                  n_layers_e: int = 6, n_layers_d: int = 6,
-                 # Direction getter
-                 dg_key: str = 'l2-regression',
-                 dg_args: dict = None,
+                 # DIRECTION GETTER
+                 dg_key: str = 'cosine-regression', dg_args: dict = None,
                  # Other
-                 normalize_directions=True,
                  neighborhood_type: str = None,
-                 neighborhood_radius: Union[int, float, List[float]] = None):
+                 neighborhood_radius: Union[int, float, List[float]] = None,
+                 normalize_directions=True,
+                 log_level=logging.root.level):
         """
         Args
         ----
@@ -440,32 +445,38 @@ class OriginalTransformerModel(AbstractTransformerModel):
         n_layers_d: int
             Number of encoding layers in the decoder. [6]
         """
-        super().__init__(experiment_name, neighborhood_type,
-                         neighborhood_radius, nb_features, max_len,
-                         positional_encoding_key, x_embedding_key,
+        super().__init__(experiment_name, nb_features, nb_previous_dirs,
+                         prev_dirs_embedding_size, prev_dirs_embedding_key,
+                         max_len, positional_encoding_key, x_embedding_key,
                          t_embedding_key, d_model, dim_ffnn, nheads,
-                         dropout_rate, activation, dg_key,
-                         dg_args, normalize_directions)
+                         dropout_rate, activation, dg_key, dg_args,
+                         neighborhood_type, neighborhood_radius,
+                         normalize_directions, log_level)
 
         # ----------- Additional params
         self.n_layers_e = n_layers_e
         self.n_layers_d = n_layers_d
 
         # ----------- Additional instantiations
-        logging.info("Instantiating torch transformer, may take a few "
-                     "seconds...")
+        logger.info("Instantiating torch transformer, may take a few "
+                    "seconds...")
         # Encoder:
         encoder_layer = TransformerEncoderLayer(
-            self.d_model, self.nheads, dim_ffnn, self.dropout_rate,
-            self.activation, batch_first=True)
+            self.d_model, self.nheads, self.dim_ffnn, self.dropout_rate,
+            self.activation, batch_first=True, norm_first=self.norm_first)
+        logger.debug("Instantiating the encoder with {} encoder layers..."
+                     .format(n_layers_e))
         encoder = TransformerEncoder(encoder_layer, n_layers_e, norm=None)
 
         # Decoder
         decoder_layer = TransformerDecoderLayer(
-            self.d_model, self.nheads, dim_ffnn, self.dropout_rate,
-            self.activation, batch_first=True)
+            self.d_model, self.nheads, self.dim_ffnn, self.dropout_rate,
+            self.activation, batch_first=True, norm_first=self.norm_first)
+        logger.debug("Instantiating the decoder with {} decoder layers..."
+                     .format(n_layers_d))
         decoder = TransformerDecoder(decoder_layer, n_layers_d, norm=None)
 
+        logger.debug("Instantiating transformer...")
         self.transformer_layer = Transformer(
             d_model, nheads, n_layers_e, n_layers_d, dim_ffnn,
             dropout_rate, activation, encoder, decoder,
@@ -516,34 +527,40 @@ class TransformerSourceAndTargetModel(AbstractTransformerModel):
                                              [ emb_choice_x ; emb_choice_y ]
 
     """
-    def __init__(self,
-                 experiment_name,
-                 # Concerning inputs:
-                 neighborhood_type, neighborhood_radius, nb_features,
-                 # Concerning embedding:
-                 max_len, positional_encoding_key: str,
-                 x_embedding_key: str, t_embedding_key: str,
-                 # Torch's transformer parameters
+    def __init__(self, experiment_name: str, nb_features: int,
+                 # PREVIOUS DIRS
+                 nb_previous_dirs: int = 0,
+                 prev_dirs_embedding_size: int = None,
+                 prev_dirs_embedding_key: str = None,
+                 # INPUTS
+                 max_len: int = 3500,
+                 positional_encoding_key: str = 'sinusoidal',
+                 x_embedding_key: str = 'nn_embedding',
+                 t_embedding_key: str = 'nn_embedding',
+                 # TRANSFORMER
                  d_model: int = 4096, dim_ffnn: int = None, nheads: int = 8,
                  dropout_rate: float = 0.1, activation: str = 'relu',
                  n_layers_d: int = 6,
-                 # Direction getter
-                 dg_key: str = 'l2-regression',
-                 dg_args: dict = None,
-                 # Concerning targets:
-                 normalize_directions=True):
+                 # DIRECTION GETTER
+                 dg_key: str = 'cosine-regression', dg_args: dict = None,
+                 # Other
+                 neighborhood_type: str = None,
+                 neighborhood_radius: Union[int, float, List[float]] = None,
+                 normalize_directions=True,
+                 log_level=logging.root.level):
         """
         Args
         ----
         n_layers_d: int
             Number of encoding layers in the decoder. [6]
         """
-        super().__init__(experiment_name, neighborhood_type,
-                         neighborhood_radius, nb_features, max_len,
-                         positional_encoding_key, x_embedding_key,
+        super().__init__(experiment_name, nb_features, nb_previous_dirs,
+                         prev_dirs_embedding_size, prev_dirs_embedding_key,
+                         max_len, positional_encoding_key, x_embedding_key,
                          t_embedding_key, d_model, dim_ffnn, nheads,
-                         dropout_rate, activation, dg_key,
-                         dg_args, normalize_directions)
+                         dropout_rate, activation, dg_key, dg_args,
+                         neighborhood_type, neighborhood_radius,
+                         normalize_directions, log_level)
 
         # ----------- Additional params
         self.n_layers_d = n_layers_d
@@ -552,26 +569,23 @@ class TransformerSourceAndTargetModel(AbstractTransformerModel):
         # We say "decoder only" from the logical point of view, but code-wise
         # it is actually "encoder only". A decoder would need output from the
         # encoder.
+        logger.debug("Instantiating Transformer...")
         double_layer = TransformerEncoderLayer(
-            self.d_model * 2, self.nheads, dim_ffnn, self.dropout_rate,
+            self.d_model * 2, self.nheads, self.dim_ffnn, self.dropout_rate,
             self.activation)
         self.main_layer = TransformerEncoder(double_layer, n_layers_d,
                                              norm=None)
-
-        self._instantiate_direction_getter(self.transformer_layer.output_size,
-                                           dg_args)
 
     def _run_main_layer_forward(self, embed_x, embed_t, mask, padded_mask):
 
         # Concatenating x and t
         inputs = torch.cat((embed_x, embed_t), dim=-1)
-        self.logger.debug("Concatenated [src | tgt] shape: {}"
-                          .format(inputs.shape))
+        logger.debug("Concatenated [src | tgt] shape: {}".format(inputs.shape))
 
         # Doubling the masks
         double_mask = torch.cat((mask, mask), dim=-1)
         double_padded_mask = torch.cat((padded_mask, padded_mask), dim=-1)
-        self.logger.debug("Concatenated mask shape: {}".format(inputs.shape))
+        logger.debug("Concatenated mask shape: {}".format(inputs.shape))
 
         # Main transformer
         outputs = self.main_layer(src=inputs, src_mask=double_mask,
