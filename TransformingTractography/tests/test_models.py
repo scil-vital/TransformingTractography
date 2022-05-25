@@ -3,7 +3,6 @@ import logging
 
 import numpy as np
 import torch
-from torch.nn.utils.rnn import pack_sequence
 
 from TransformingTractography.models.transformer import (
     OriginalTransformerModel, TransformerSourceAndTargetModel)
@@ -46,6 +45,11 @@ def test_models():
 
     # Testing forward.
     output = model(batch_x, batch_streamlines)
+
+    assert len(output) == 2, "Model output should contain 2 streamlines"
+    assert output[0].shape[1] == 3, "Model should output 3D coordinates"
+
+    # Note. output[0].shape[0] ==> Depends if we unpad sequences.
 
     logging.debug("Source and target model!\n"
                   "-----------------------------")

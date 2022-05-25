@@ -46,22 +46,24 @@ class SinusoidalPositionalEncoding(AbstractPositionalEncoding):
         position = torch.arange(max_len).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2) *
                              (-math.log(10000.0) / d_model))
-        pos_emb = torch.zeros(max_len, 1, d_model)
-        pos_emb[:, 0, 0::2] = torch.sin(position * div_term)
-        pos_emb[:, 0, 1::2] = torch.cos(position * div_term)
+        pos_emb = torch.zeros(1, max_len, d_model)
+        pos_emb[0, :, 0::2] = torch.sin(position * div_term)
+        pos_emb[0, :, 1::2] = torch.cos(position * div_term)
 
         # pos_emb is a parameter, but not learned. We don't want the optimizer
-        # to update this. We could do self.pos_emb= pos_emb.
+        # to update this. We could do self.pos_emb = pos_emb.
         # However, it is big enough that we would like it to be moved to GPU or
         # CPU whenever the module is. That is the use of a "buffer".
         self.register_buffer('pos_emb', pos_emb)
 
-    def forward(self, x_size) -> torch.Tensor:
+    def forward(self, x) -> torch.Tensor:
         """
         Args:
-            x_size: x.size(0) when x is a tensor.
+            x: Tensor. shape: [batch_size, seq_len, d_model]
         """
-        return self.pos_emb[:x_size]
+        x += self.pos_emb
+
+        return x
 
 
 class RelationalSinusoidalPosEncoding(AbstractPositionalEncoding):
