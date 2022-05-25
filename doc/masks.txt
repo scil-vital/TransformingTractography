@@ -1,0 +1,29 @@
+To verify mask use: During forward:
+
+    transformer:
+        calls encoder:
+            loops on layers and calls encoderLayer:
+                calls _sa_block:
+                    calls self.self_attn = MultiHeadAttention(src_mask)
+
+        calls decoder:
+            loops on layers and calls decoderLayer:
+                calls _sa_block:
+                    calls self.self_attn = MultiHeadAttention(tgt_mask)
+
+In our case, length of src = length of tgt so
+src_mask = tgt_mask = memory_mask = LxL!
+
+-------------------
+Note: We have two reasons for masks: hide the padded length +
+                                     hide the future in generation.
+
+Typically, in the MultiHeadAttention, hidding paddded time points is done by
+hiding the keys only through key_padding_mask and others through attn_mask.
+In practice, what they do is attn_mask = attn_mask.logical_or(key_padding_mask)
+so it really doesn't change anything.
+
+We actually simply use one mask for both use. In all case, it means we hide
+all padded data, either padded because streamline is short because it is not
+fully generated yet during tracking or because streamline is simply short
+during training.

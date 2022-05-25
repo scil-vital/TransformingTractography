@@ -2,11 +2,11 @@
 
 from dwi_ml.experiment.trainer_abstract import StreamlinesBasedModelAbstract
 
-from TransformingTractography.models.embedding import (
+from TransformingTractography.models.positional_encoding import (
     CompleteEmbedding, ConvolutionalDataEmbedding,
-    NeuralNetworkDataEmbedding, SimpleDataEmbedding, SinusoidalPosEmbedding,
-    RelationalSinusoidalPosEmbedding)
-from TransformingTractography.models.transformer import OurTransformer
+    NeuralNetworkDataEmbedding, SimpleDataEmbedding, SinusoidalPosEmbedding2,
+    RelationalSinusoidalPosEncoding)
+from TransformingTractography.models.transformer import TransformingTractography
 
 class Trainer(StreamlinesBasedModelAbstract):
     def __init__(self, args):
@@ -56,9 +56,9 @@ class Trainer(StreamlinesBasedModelAbstract):
             'cnn': ConvolutionalDataEmbedding() #toDO
         }
         position_embedding_builder = {
-            'sinusoidal': SinusoidalPosEmbedding(d_model=self.d_model,
-                                                 max_seq=self.max_seq),
-            'relational': RelationalSinusoidalPosEmbedding() #toDo
+            'sinusoidal': SinusoidalPosEmbedding2(d_model=self.d_model,
+                                                  max_seq=self.max_seq),
+            'relational': RelationalSinusoidalPosEncoding() #toDo
         }
 
         # Embedding
@@ -73,11 +73,11 @@ class Trainer(StreamlinesBasedModelAbstract):
         embedding_layer_y = None #ToDo
 
         # Complete models
-        self.transformer = OurTransformer(embedding_layer_x, embedding_layer_y,
-                                          self.nb_classes, self.d_model,
-                                          self.nheads, self.n_layers_e,
-                                          self.n_layers_d, self.dim_ffnn,
-                                          self.dropout, self.activation)
+        self.transformer = TransformingTractography(embedding_layer_x, embedding_layer_y,
+                                                    self.nb_classes, self.d_model,
+                                                    self.nheads, self.n_layers_e,
+                                                    self.n_layers_d, self.dim_ffnn,
+                                                    self.dropout, self.activation)
 
     def train(self, **kwargs):
         self.transformer(self.data_x, self.data_y)
