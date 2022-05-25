@@ -54,8 +54,11 @@ class AbstractTransformerModel(MainModelWithPD):
     All this to say we can't use raw data, and the minimum is to learn to adapt
     with a neural network.
     """
+    layer_norm = 1e-5  # epsilon value for the normalization sub-layers
+    norm_first = False  # If True, encoder and decoder layers will perform
+    # LayerNorms before other attention and feedforward operations, otherwise
+    # after. Torch default + in original paper: False.
     batch_first = True  # If True, then the input and output tensors are
-
     # provided as (batch, seq, feature). If False, (seq, batch, feature).
 
     def __init__(self,
@@ -507,12 +510,6 @@ class OriginalTransformerModel(AbstractTransformerModel):
                 emb_choice_x
 
     """
-    layer_norm = 1e-5  # epsilon value for the normalization sub-layers
-    norm_first = False  # If True, encoder and decoder layers will perform
-
-    # LayerNorms before other attention and feedforward operations, otherwise
-    # after. Torch default + in original paper: False.
-
     def __init__(self, experiment_name: str, nb_features: int,
                  # PREVIOUS DIRS
                  nb_previous_dirs: int = 0,
@@ -665,24 +662,24 @@ class TransformerSourceAndTargetModel(AbstractTransformerModel):
         logger.debug("Instantiating Transformer...")
         double_layer = TransformerEncoderLayer(
             self.d_model * 2, self.nheads, self.dim_ffnn, self.dropout_rate,
-            self.activation)
+            self.activation, batch_first=True, norm_first=self.norm_first)
         self.main_layer = TransformerEncoder(double_layer, n_layers_d,
                                              norm=None)
 
-    def _run_main_layer_forward(self, embed_x, embed_t, mask, padded_mask):
+    def _run_main_layer_forward(self, embed_x, embed_t, future_mask,
+                                padded_mask):
         # Concatenating x and t
         inputs = torch.cat((embed_x, embed_t), dim=-1)
         logger.debug("Concatenated [src | tgt] shape: {}".format(inputs.shape))
 
-        # Doubling the masks
-        double_mask = torch.cat((mask, mask), dim=-1)
-        double_padded_mask = torch.cat((padded_mask, padded_mask), dim=-1)
-        logger.debug("Concatenated mask shape: {}".format(inputs.shape))
-
         # Main transformer
-        outputs = self.main_layer(src=inputs, src_mask=double_mask,
-                                  src_key_padding_mask=double_padded_mask)
+        outputs = self.main_layer(src=inputs, mask=future_mask,
+                                  src_key_padding_mask=padded_mask)
+        logger.debug("Outputs shape: {}".format(outputs.shape))
 
         # Take the second half of model outputs to direction getter
-        # (the last skip-connection makes more sense this way)
-        return outputs[-self.d_model:-1]
+        # (the last skip-connection makes more sense this way. That's why it's
+        # more a "decoder" than an "encoder" in logical meaning.
+        kept_outputs = outputs[:, :, -self.d_model:]
+        logger.debug("Final outputs shape: {}".format(kept_outputs.shape))
+        return kept_outputs

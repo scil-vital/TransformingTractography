@@ -54,7 +54,11 @@ def test_models():
     logging.debug("Source and target model!\n"
                   "-----------------------------")
     model = TransformerSourceAndTargetModel('test', nb_features=4,
+                                            d_model=8, max_len=15,
                                             log_level='DEBUG')
+
+    # Testing forward.
+    output = model(batch_x, batch_streamlines)
 
 
 if __name__ == '__main__':
