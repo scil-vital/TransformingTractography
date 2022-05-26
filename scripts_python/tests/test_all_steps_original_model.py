@@ -20,7 +20,7 @@ def test_help_option(script_runner):
         'tt_resume_training_from_checkpoint_original_model.py', '--help')
     assert ret.success
 
-    #ret = script_runner.run('l2t_track_from_model.py', '--help')
+    #ret = script_runner.run('tt_track_from_model.py', '--help')
     #assert ret.success
 
 
@@ -59,7 +59,7 @@ def test_execution_bst(script_runner):
     # whole_experiment_path = os.path.join(experiment_path, experiment_name)
     # out_tractogram = os.path.join(tmp_dir.name, 'test_tractogram.trk')
     # ret = script_runner.run(
-    #     'l2t_track_from_model.py', whole_experiment_path, out_tractogram,
+    #     'tt_track_from_model.py', whole_experiment_path, out_tractogram,
     #     'det', '--nt', '2', '--logging', 'debug',
     #     '--sm_from_hdf5', TEST_EXPECTED_VOLUME_GROUPS[1],
     #     '--tm_from_hdf5', TEST_EXPECTED_VOLUME_GROUPS[1],
