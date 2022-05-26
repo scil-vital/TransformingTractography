@@ -5,7 +5,7 @@ import numpy as np
 import torch
 
 from TransformingTractography.models.transformer import (
-    OriginalTransformerModel, TransformerSourceAndTargetModel)
+    OriginalTransformerModel, TransformerSrcAndTgtModel)
 
 
 def _create_batch():
@@ -53,9 +53,9 @@ def test_models():
 
     logging.debug("Source and target model!\n"
                   "-----------------------------")
-    model = TransformerSourceAndTargetModel('test', nb_features=4,
-                                            d_model=8, max_len=15,
-                                            log_level='DEBUG')
+    model = TransformerSrcAndTgtModel('test', nb_features=4,
+                                      d_model=8, max_len=15,
+                                      log_level='DEBUG')
 
     # Testing forward.
     output = model(batch_x, batch_streamlines)

@@ -568,8 +568,9 @@ class OriginalTransformerModel(AbstractTransformerModel):
                  embedding_key_x: str = 'nn_embedding',
                  embedding_key_t: str = 'nn_embedding',
                  # TRANSFORMER
-                 d_model: int = 4096, ffnn_hidden_size: int = None, nheads: int = 8,
-                 dropout_rate: float = 0.1, activation: str = 'relu',
+                 d_model: int = 4096, ffnn_hidden_size: int = None,
+                 nheads: int = 8, dropout_rate: float = 0.1,
+                 activation: str = 'relu',
                  n_layers_e: int = 6, n_layers_d: int = 6,
                  # DIRECTION GETTER
                  dg_key: str = 'cosine-regression', dg_args: dict = None,
@@ -603,14 +604,16 @@ class OriginalTransformerModel(AbstractTransformerModel):
                     "seconds...")
         # Encoder:
         encoder_layer = TransformerEncoderLayer(
-            self.d_model, self.nheads, self.ffnn_hidden_size, self.dropout_rate,
-            self.activation, batch_first=True, norm_first=self.norm_first)
+            self.d_model, self.nheads, self.ffnn_hidden_size,
+            self.dropout_rate, self.activation, batch_first=True,
+            norm_first=self.norm_first)
         encoder = TransformerEncoder(encoder_layer, n_layers_e, norm=None)
 
         # Decoder
         decoder_layer = TransformerDecoderLayer(
-            self.d_model, self.nheads, self.ffnn_hidden_size, self.dropout_rate,
-            self.activation, batch_first=True, norm_first=self.norm_first)
+            self.d_model, self.nheads, self.ffnn_hidden_size,
+            self.dropout_rate, self.activation, batch_first=True,
+            norm_first=self.norm_first)
         decoder = TransformerDecoder(decoder_layer, n_layers_d, norm=None)
 
         self.transformer_layer = Transformer(
@@ -640,7 +643,7 @@ class OriginalTransformerModel(AbstractTransformerModel):
         return outputs
 
 
-class TransformerSourceAndTargetModel(AbstractTransformerModel):
+class TransformerSrcAndTgtModel(AbstractTransformerModel):
     """
     Decoder only. Concatenate source + target together as input.
     See https://arxiv.org/abs/1905.06596
@@ -675,9 +678,9 @@ class TransformerSourceAndTargetModel(AbstractTransformerModel):
                  embedding_key_x: str = 'nn_embedding',
                  embedding_key_t: str = 'nn_embedding',
                  # TRANSFORMER
-                 d_model: int = 4096, ffnn_hidden_size: int = None, nheads: int = 8,
-                 dropout_rate: float = 0.1, activation: str = 'relu',
-                 n_layers_d: int = 6,
+                 d_model: int = 4096, ffnn_hidden_size: int = None,
+                 nheads: int = 8, dropout_rate: float = 0.1,
+                 activation: str = 'relu', n_layers_d: int = 6,
                  # DIRECTION GETTER
                  dg_key: str = 'cosine-regression', dg_args: dict = None,
                  # Other
@@ -708,10 +711,19 @@ class TransformerSourceAndTargetModel(AbstractTransformerModel):
         # encoder.
         logger.debug("Instantiating Transformer...")
         double_layer = TransformerEncoderLayer(
-            self.d_model * 2, self.nheads, self.ffnn_hidden_size, self.dropout_rate,
-            self.activation, batch_first=True, norm_first=self.norm_first)
+            self.d_model * 2, self.nheads, self.ffnn_hidden_size,
+            self.dropout_rate, self.activation, batch_first=True,
+            norm_first=self.norm_first)
         self.main_layer = TransformerEncoder(double_layer, n_layers_d,
                                              norm=None)
+
+    @property
+    def params(self):
+        p = super().params
+        p.update({
+            'n_layers_d': self.n_layers_d,
+        })
+        return p
 
     def _run_main_layer_forward(self, embed_x, embed_t, future_mask,
                                 padded_mask):

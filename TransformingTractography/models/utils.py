@@ -10,7 +10,7 @@ from dwi_ml.models.utils.direction_getters import check_args_direction_getter
 from TransformingTractography.models.positional_encoding import (
     keys_to_positional_encodings)
 from TransformingTractography.models.transformer import \
-    OriginalTransformerModel, TransformerSourceAndTargetModel
+    OriginalTransformerModel, TransformerSrcAndTgtModel
 
 
 def add_abstract_model_args(p):
@@ -151,11 +151,9 @@ def prepare_original_model(args, dg_args):
     return model
 
 
-def prepare_src_tgt_model(args):
-    dg_args, args = perform_checks(args)
-
+def prepare_src_tgt_model(args, dg_args):
     with Timer("\n\nPreparing model", newline=True, color='yellow'):
-        model = TransformerSourceAndTargetModel(
+        model = TransformerSrcAndTgtModel(
             experiment_name=args.experiment_name,
             # Concerning inputs:
             neighborhood_type=args.neighborhood_type,
@@ -169,8 +167,7 @@ def prepare_src_tgt_model(args):
             # Torch's transformer parameters
             d_model=args.d_model, ffnn_hidden_size=args.ffnn_hidden_size,
             nheads=args.nheads, dropout_rate=args.dropout_rate,
-            activation=args.activation,
-            n_layers_d=args.n_layers_e,
+            activation=args.activation, n_layers_d=args.n_layers_d,
             # Direction getter
             dg_key=args.dg_key, dg_args=dg_args,
             normalize_directions=args.normalize_directions)
