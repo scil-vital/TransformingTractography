@@ -232,7 +232,7 @@ class AbstractTransformerModel(MainModelWithPD):
         """
         p = super().params
         p.update({
-            'nb_features': self.nb_features,
+            'nb_features': int(self.nb_features),
             'x_embedding_key': self.embedding_key_x,
             'positional_embedding_key': self.positional_encoding_key,
             't_embedding_key': self.embedding_key_t,
@@ -469,8 +469,48 @@ class AbstractTransformerModel(MainModelWithPD):
     def _run_main_layer_forward(self, embed_x, embed_t, mask, padded_masks):
         raise NotImplementedError
 
-    def compute_loss(self, model_outputs, streamlines, device):
-        self.direction_getter_layer.compute_loss(model_outputs, streamlines)
+    def compute_loss(self, model_outputs, streamlines):
+        """
+        Computes the loss function using the provided outputs and targets.
+        Returns the mean loss (loss averaged across timesteps and sequences).
+
+        Parameters
+        ----------
+        model_outputs : Any
+            The model outputs for a batch of sequences. Ex: a gaussian mixture
+            direction getter returns a Tuple[Tensor, Tensor, Tensor], but a
+            cosine regression direction getter return a simple Tensor. Please
+            make sure that the chosen direction_getter's output size fits with
+            the target ou the target's data if it's a PackedSequence.
+        streamlines : List
+            The target values for the batch (the streamlines).
+
+        Returns
+        -------
+        mean_loss : torch.Tensor
+            The loss between the outputs and the targets, averaged across
+            timesteps and sequences.
+        """
+        # Computing directions. Note that if previous dirs are used, this was
+        # already computed when calling the forward method. We could try to
+        # prevent double calculations, but a little complicated in actual class
+        # structure.
+        targets = self.format_directions(streamlines)
+
+        # Packing values and using the .data, or looping on streamlines?
+        # On testing data: packing = 0.012, looping = 0.002
+        # toDo verify this on larger data? Also, it changes the computation
+        #  of the backward, so maybe verify the whole execution's time?
+        nb_streamlines = len(streamlines)
+        mean_loss = torch.tensor(0.)
+        for i in range(nb_streamlines):
+            # Computing loss
+            mean_loss += self.direction_getter_layer.compute_loss(
+                model_outputs[i].to(self.device), targets[i].to(self.device))
+
+        mean_loss /= nb_streamlines
+
+        return mean_loss
 
     def get_tracking_direction_det(self, model_outputs):
         self.direction_getter_layer.get_tracking_direction_get(model_outputs)

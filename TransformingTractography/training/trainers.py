@@ -29,11 +29,12 @@ class TransformerTrainer(DWIMLTrainerOneInput):
         """
         See Super for parameter description. No additional parameters here.
         """
+        model_uses_streamlines = True
         super().__init__(model, experiments_path, experiment_name,
                          batch_sampler_training, batch_loader_training,
                          batch_sampler_validation, batch_loader_validation,
-                         learning_rate, weight_decay, max_epochs,
-                         max_batches_per_epoch, patience,
+                         model_uses_streamlines, learning_rate, weight_decay,
+                         max_epochs, max_batches_per_epoch, patience,
                          nb_cpu_processes, taskman_managed, use_gpu,
                          comet_workspace, comet_project,
                          from_checkpoint, log_level)

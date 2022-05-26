@@ -42,8 +42,9 @@ def add_abstract_model_args(p):
         '--max_len', type=int, default=1000, metavar='n',
         help="Longest sequence allowed. Other sequences will be zero-padded \n"
              "up to that length (but attention can't attend to padded "
-             "timepoints).\nAlso used with sinusoidal position embedding.\n"
-             "[%(default)s]")
+             "timepoints).\nPlease beware that this value influences strongly "
+             "the executing time and heaviness.\nAlso used with sinusoidal "
+             "position embedding. [%(default)s]")
     gt.add_argument(
         '--nheads', type=int, default=8, metavar='n',
         help="Number of heads per layer. Could be different for each layer \n"
