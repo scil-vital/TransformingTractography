@@ -70,11 +70,12 @@ class AbstractTransformerModel(MainModelWithPD):
                  # INPUTS
                  max_len: int = 3500,
                  positional_encoding_key: str = 'sinusoidal',
-                 x_embedding_key: str = 'nn_embedding',
-                 t_embedding_key: str = 'nn_embedding',
+                 embedding_key_x: str = 'nn_embedding',
+                 embedding_key_t: str = 'nn_embedding',
                  # TRANSFORMER
-                 d_model: int = 4096, dim_ffnn: int = None, nheads: int = 8,
-                 dropout_rate: float = 0.1, activation: str = 'relu',
+                 d_model: int = 4096, ffnn_hidden_size: int = None,
+                 nheads: int = 8, dropout_rate: float = 0.1,
+                 activation: str = 'relu',
                  # DIRECTION GETTER
                  dg_key: str = 'cosine-regression', dg_args: dict = None,
                  # Other
@@ -104,11 +105,11 @@ class AbstractTransformerModel(MainModelWithPD):
         positional_encoding_key: str,
             Chosen class for the input's positional embedding. Choices:
             keys_to_positional_embeddings.keys(). Default: 'sinusoidal'.
-        x_embedding_key: str,
+        embedding_key_x: str,
             Chosen class for the input embedding (the data embedding part).
             Choices: keys_to_embeddings.keys().
             Default: 'no_embedding'.
-        t_embedding_key: str,
+        embedding_key_t: str,
             Target embedding, with the same choices as above.
             Default: 'no_embedding'.
         d_model: int,
@@ -117,7 +118,7 @@ class AbstractTransformerModel(MainModelWithPD):
             embeddings should also produce outputs of size d_model.
             Value must be divisible by num_heads.
             Default: 4096.
-        dim_ffnn: int
+        ffnn_hidden_size: int
             Size of the feed-forward neural network (FFNN) layer in the encoder
             and decoder layers. The FFNN is composed of two linear layers. This
             is the size of the output of the first one. In the music paper,
@@ -158,13 +159,14 @@ class AbstractTransformerModel(MainModelWithPD):
         self.nb_features = nb_features
         self.max_len = max_len
         self.positional_encoding_key = positional_encoding_key
-        self.embedding_key_x = x_embedding_key
-        self.embedding_key_t = t_embedding_key
+        self.embedding_key_x = embedding_key_x
+        self.embedding_key_t = embedding_key_t
         self.dropout_rate = dropout_rate
         self.activation = activation
         self.nheads = nheads
         self.d_model = d_model
-        self.dim_ffnn = dim_ffnn if dim_ffnn is not None else d_model // 2
+        self.ffnn_hidden_size = ffnn_hidden_size if ffnn_hidden_size \
+            else d_model // 2
         self.dg_key = dg_key
         self.dg_args = dg_args or {}
 
@@ -182,6 +184,9 @@ class AbstractTransformerModel(MainModelWithPD):
         if self.dg_key not in keys_to_direction_getters.keys():
             raise ValueError("Direction getter choice not understood: {}"
                              .format(self.positional_encoding_key))
+        assert d_model // nheads == float(d_model) / nheads, \
+            "d_model ({}) must be divisible by nheads ({})" \
+            .format(d_model, nheads)
 
         # ----------- Input size:
         # (neighborhood prepared by super)
@@ -233,15 +238,17 @@ class AbstractTransformerModel(MainModelWithPD):
         p = super().params
         p.update({
             'nb_features': int(self.nb_features),
-            'x_embedding_key': self.embedding_key_x,
-            'positional_embedding_key': self.positional_encoding_key,
-            't_embedding_key': self.embedding_key_t,
+            'max_len': self.max_len,
+            'embedding_key_x': self.embedding_key_x,
+            'positional_encoding_key': self.positional_encoding_key,
+            'embedding_key_t': self.embedding_key_t,
             'dropout_rate': self.dropout_rate,
             'activation': self.activation,
             'nheads': self.nheads,
             'd_model': self.d_model,
-            'dim_ffnn': self.dim_ffnn,
-            'direction_getter_key': self.dg_key
+            'ffnn_hidden_size': self.ffnn_hidden_size,
+            'dg_key': self.dg_key,
+            'dg_args': self.dg_args,
         })
         return p
 
@@ -558,10 +565,10 @@ class OriginalTransformerModel(AbstractTransformerModel):
                  # INPUTS
                  max_len: int = 3500,
                  positional_encoding_key: str = 'sinusoidal',
-                 x_embedding_key: str = 'nn_embedding',
-                 t_embedding_key: str = 'nn_embedding',
+                 embedding_key_x: str = 'nn_embedding',
+                 embedding_key_t: str = 'nn_embedding',
                  # TRANSFORMER
-                 d_model: int = 4096, dim_ffnn: int = None, nheads: int = 8,
+                 d_model: int = 4096, ffnn_hidden_size: int = None, nheads: int = 8,
                  dropout_rate: float = 0.1, activation: str = 'relu',
                  n_layers_e: int = 6, n_layers_d: int = 6,
                  # DIRECTION GETTER
@@ -581,8 +588,8 @@ class OriginalTransformerModel(AbstractTransformerModel):
         """
         super().__init__(experiment_name, nb_features, nb_previous_dirs,
                          prev_dirs_embedding_size, prev_dirs_embedding_key,
-                         max_len, positional_encoding_key, x_embedding_key,
-                         t_embedding_key, d_model, dim_ffnn, nheads,
+                         max_len, positional_encoding_key, embedding_key_x,
+                         embedding_key_t, d_model, ffnn_hidden_size, nheads,
                          dropout_rate, activation, dg_key, dg_args,
                          neighborhood_type, neighborhood_radius,
                          normalize_directions, log_level)
@@ -596,18 +603,18 @@ class OriginalTransformerModel(AbstractTransformerModel):
                     "seconds...")
         # Encoder:
         encoder_layer = TransformerEncoderLayer(
-            self.d_model, self.nheads, self.dim_ffnn, self.dropout_rate,
+            self.d_model, self.nheads, self.ffnn_hidden_size, self.dropout_rate,
             self.activation, batch_first=True, norm_first=self.norm_first)
         encoder = TransformerEncoder(encoder_layer, n_layers_e, norm=None)
 
         # Decoder
         decoder_layer = TransformerDecoderLayer(
-            self.d_model, self.nheads, self.dim_ffnn, self.dropout_rate,
+            self.d_model, self.nheads, self.ffnn_hidden_size, self.dropout_rate,
             self.activation, batch_first=True, norm_first=self.norm_first)
         decoder = TransformerDecoder(decoder_layer, n_layers_d, norm=None)
 
         self.transformer_layer = Transformer(
-            d_model, nheads, n_layers_e, n_layers_d, dim_ffnn,
+            d_model, nheads, n_layers_e, n_layers_d, ffnn_hidden_size,
             dropout_rate, activation, encoder, decoder,
             self.layer_norm, batch_first=True, norm_first=False)
 
@@ -665,10 +672,10 @@ class TransformerSourceAndTargetModel(AbstractTransformerModel):
                  # INPUTS
                  max_len: int = 3500,
                  positional_encoding_key: str = 'sinusoidal',
-                 x_embedding_key: str = 'nn_embedding',
-                 t_embedding_key: str = 'nn_embedding',
+                 embedding_key_x: str = 'nn_embedding',
+                 embedding_key_t: str = 'nn_embedding',
                  # TRANSFORMER
-                 d_model: int = 4096, dim_ffnn: int = None, nheads: int = 8,
+                 d_model: int = 4096, ffnn_hidden_size: int = None, nheads: int = 8,
                  dropout_rate: float = 0.1, activation: str = 'relu',
                  n_layers_d: int = 6,
                  # DIRECTION GETTER
@@ -686,8 +693,8 @@ class TransformerSourceAndTargetModel(AbstractTransformerModel):
         """
         super().__init__(experiment_name, nb_features, nb_previous_dirs,
                          prev_dirs_embedding_size, prev_dirs_embedding_key,
-                         max_len, positional_encoding_key, x_embedding_key,
-                         t_embedding_key, d_model, dim_ffnn, nheads,
+                         max_len, positional_encoding_key, embedding_key_x,
+                         embedding_key_t, d_model, ffnn_hidden_size, nheads,
                          dropout_rate, activation, dg_key, dg_args,
                          neighborhood_type, neighborhood_radius,
                          normalize_directions, log_level)
@@ -701,7 +708,7 @@ class TransformerSourceAndTargetModel(AbstractTransformerModel):
         # encoder.
         logger.debug("Instantiating Transformer...")
         double_layer = TransformerEncoderLayer(
-            self.d_model * 2, self.nheads, self.dim_ffnn, self.dropout_rate,
+            self.d_model * 2, self.nheads, self.ffnn_hidden_size, self.dropout_rate,
             self.activation, batch_first=True, norm_first=self.norm_first)
         self.main_layer = TransformerEncoder(double_layer, n_layers_d,
                                              norm=None)

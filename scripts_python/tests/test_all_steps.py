@@ -16,8 +16,9 @@ def test_help_option(script_runner):
     ret = script_runner.run('tt_train_original_model.py', '--help')
     assert ret.success
 
-    #ret = script_runner.run('l2t_resume_training_from_checkpoint.py', '--help')
-    #assert ret.success
+    ret = script_runner.run(
+        'tt_resume_training_from_checkpoint_original_model.py', '--help')
+    assert ret.success
 
     #ret = script_runner.run('l2t_track_from_model.py', '--help')
     #assert ret.success
@@ -35,23 +36,24 @@ def test_execution_bst(script_runner):
     # Here, testing default values only. See dwi_ml.tests.test_trainer for more
     # various testing.
     # Max length in current testing dataset is 108. Setting max length to 115
-    # for faster testing.
+    # for faster testing. Also decreasing other default values.
     logging.info("************ TESTING TRAINING ************")
     ret = script_runner.run('tt_train_original_model.py',
                             experiments_path, experiment_name, hdf5_file,
                             input_group_name, streamline_group_name,
                             '--max_epochs', '1', '--batch_size', '5',
                             '--batch_size_units', 'nb_streamlines',
-                            '--max_batches_per_epoch', '5',
-                            '--max_len', '115',
-                            '--logging', 'INFO')
+                            '--max_batches_per_epoch', '5', '--nheads', '1',
+                            '--max_len', '115', '--d_model', '6',
+                            '--n_layers_e', '1', '--n_layers_d', '1',
+                            '--ffnn_hidden_size', '3', '--logging', 'INFO')
     assert ret.success
-    #
-    # logging.info("************ TESTING RESUMING FROM CHECKPOINT ************")
-    # ret = script_runner.run('l2t_resume_training_from_checkpoint.py',
-    #                         experiment_path, 'test_experiment',
-    #                         '--new_max_epochs', '2')
-    # assert ret.success
+
+    logging.info("************ TESTING RESUMING FROM CHECKPOINT ************")
+    ret = script_runner.run(
+        'tt_resume_training_from_checkpoint_original_model.py',
+        experiments_path, 'test_experiment', '--new_max_epochs', '2')
+    assert ret.success
     #
     # logging.info("************ TESTING TRACKING FROM MODEL ************")
     # whole_experiment_path = os.path.join(experiment_path, experiment_name)

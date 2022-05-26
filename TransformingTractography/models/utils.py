@@ -134,10 +134,10 @@ def prepare_original_model(args, dg_args):
             # Concerning embedding:
             max_len=args.max_len,
             positional_encoding_key=args.position_encoding,
-            x_embedding_key=args.data_embedding,
-            t_embedding_key=args.target_embedding,
+            embedding_key_x=args.data_embedding,
+            embedding_key_t=args.target_embedding,
             # Torch's transformer parameters
-            d_model=args.d_model, dim_ffnn=args.ffnn_hidden_size,
+            d_model=args.d_model, ffnn_hidden_size=args.ffnn_hidden_size,
             nheads=args.nheads, dropout_rate=args.dropout_rate,
             activation=args.activation, n_layers_e=args.n_layers_e,
             n_layers_d=args.n_layers_e,
@@ -164,10 +164,10 @@ def prepare_src_tgt_model(args):
             # Concerning embedding:
             max_len=args.max_len,
             positional_encoding_key=args.position_encoding,
-            x_embedding_key=args.data_embedding,
-            t_embedding_key=args.target_embedding,
+            embedding_key_x=args.data_embedding,
+            embedding_key_t=args.target_embedding,
             # Torch's transformer parameters
-            d_model=args.d_model, dim_ffnn=args.ffnn_hidden_size,
+            d_model=args.d_model, ffnn_hidden_size=args.ffnn_hidden_size,
             nheads=args.nheads, dropout_rate=args.dropout_rate,
             activation=args.activation,
             n_layers_d=args.n_layers_e,
