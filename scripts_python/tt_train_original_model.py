@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Train a model.
+Train a Transformer (original) model.
 """
 import argparse
 import logging
@@ -14,7 +14,7 @@ from dwi_ml.experiment_utils.timer import Timer
 from scilpy.io.utils import assert_inputs_exist, assert_outputs_exist
 
 from dwi_ml.data.dataset.utils import (
-    add_args_dataset, prepare_multisubjectdataset)
+    add_dataset_args, prepare_multisubjectdataset)
 from dwi_ml.models.utils.direction_getters import add_direction_getter_args
 from dwi_ml.training.utils.batch_samplers import (
     add_args_batch_sampler, prepare_batchsamplers_train_valid)
@@ -30,11 +30,6 @@ from TransformingTractography.models.utils import (
     add_abstract_model_args, add_original_model_args,
     perform_checks, prepare_original_model)
 from TransformingTractography.training.trainers import TransformerTrainer
-from TransformingTractography.training.utils import prepare_trainer
-
-
-# Currently only accepting NN embedding for target
-T_EMBEDDING_KEY = 'nn_embedding'
 
 
 def prepare_arg_parser():
@@ -43,11 +38,12 @@ def prepare_arg_parser():
     add_mandatory_args_training_experiment(p)
     add_printing_args_training_experiment(p)
     add_memory_args_training_experiment(p)
-    add_args_dataset(p)
+    add_dataset_args(p)
     add_args_batch_sampler(p)
     add_args_batch_loader(p)
     add_training_args(p)
 
+    # Specific to Transformers:
     gt = add_abstract_model_args(p)
     add_original_model_args(gt)
     add_direction_getter_args(p)
@@ -88,10 +84,9 @@ def init_from_args(args):
     # Instantiate trainer
     with Timer("\n\nPreparing trainer", newline=True, color='red'):
         trainer = TransformerTrainer(
-            training_batch_sampler, validation_batch_sampler,
-            training_batch_loader, validation_batch_loader,
-            model,
-            args.experiment_path, args.experiment_name,
+            model, args.experiments_path, args.experiment_name,
+            training_batch_sampler, training_batch_loader,
+            validation_batch_sampler, validation_batch_loader,
             # COMET
             comet_project=args.comet_project,
             comet_workspace=args.comet_workspace,
@@ -122,10 +117,10 @@ def main():
 
     # Check that all files exist
     assert_inputs_exist(p, [args.hdf5_file])
-    assert_outputs_exist(p, args, args.experiment_path)
+    assert_outputs_exist(p, args, args.experiments_path)
 
     # Verify if a checkpoint has been saved. Else create an experiment.
-    if path.exists(os.path.join(args.experiment_path, args.experiment_name,
+    if path.exists(os.path.join(args.experiments_path, args.experiment_name,
                                 "checkpoint")):
         raise FileExistsError("This experiment already exists. Delete or use "
                               "script resume_training_from_checkpoint.py.")

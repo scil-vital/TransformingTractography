@@ -10,7 +10,7 @@ from dwi_ml.models.utils.direction_getters import check_args_direction_getter
 from TransformingTractography.models.positional_encoding import (
     keys_to_positional_encodings)
 from TransformingTractography.models.transformer import \
-    OriginalTransformerModel, TransformerSourceAndTargetModel
+    OriginalTransformerModel, TransformerSrcAndTgtModel
 
 
 def add_abstract_model_args(p):
@@ -18,61 +18,62 @@ def add_abstract_model_args(p):
     gx = p.add_argument_group("Embedding:")
     gx.add_argument(
         '--data_embedding', default='nn_embedding',
-        choices=keys_to_embeddings.keys(),
-        help="Type of data embedding to use. Currently, only one layer of"
-             "NN is implemented. #todo.")
+        choices=keys_to_embeddings.keys(), metavar='key',
+        help="Type of data embedding to use. One of 'no_embedding', \n"
+             "'nn_embedding' (default) or 'cnn_embedding'.")
     gx.add_argument(
-        '--position_encoding', default='sinusoidal',
+        '--position_encoding', default='sinusoidal', metavar='key',
         choices=keys_to_positional_encodings.keys(),
-        help="Type of positional embedding to use. Default: [%(default)s].\n"
-             "   -Sinusoidal: Such as described in [1]. Also used in [2].\n"
-             "   -Relational: Such as described in [2].")
+        help="Type of positional embedding to use. One of 'sinusoidal' "
+             "(default)\n or 'relational'. ")
     gx.add_argument(
         '--target_embedding', default='nn_embedding',
-        choices={'nn_embedding'},
-        help="Type of streamline embedding to use. #todo.")
+        choices=keys_to_embeddings.keys(), metavar='key',
+        help="Type of data embedding to use. One of 'no_embedding', \n"
+             "'nn_embedding' (default) or 'cnn_embedding'.")
 
     gt = p.add_argument_group(title='Transformer')
     gt.add_argument(
-        '--d_model', type=int, default=4096,
-        help="Output size that will kept constant in all layers to allow skip "
-             "connections (embedding size, ffnn output size, attention size)")
-    p.add_argument(
-        '--max_len', type=int, default=1000,
-        help="Longest sequence allowed. Other sequences will be zero-padded "
-             "up to that length\n (but attention can't attend to padded "
-             "timepoints).\n Also used with sinusoidal position embedding.\n"
-             "Value in [1]: ?. In [2]: 3500. Here: default=1000.")
+        '--d_model', type=int, default=4096, metavar='n',
+        help="Output size that will kept constant in all layers to allow \n"
+             "skip connections (embedding size, ffnn output size, attention \n"
+             "size). [%(default)s]")
     gt.add_argument(
-        '--nheads', type=int, default=8,
-        help="Number of heads per layer. Could be different for each layer "
-             "but we decided not to implement this possibility. Value in [1] "
-             "and [2]: 8. Default: [%(default)s]")
+        '--max_len', type=int, default=1000, metavar='n',
+        help="Longest sequence allowed. Other sequences will be zero-padded \n"
+             "up to that length (but attention can't attend to padded "
+             "timepoints).\nPlease beware that this value influences strongly "
+             "the executing time and heaviness.\nAlso used with sinusoidal "
+             "position embedding. [%(default)s]")
     gt.add_argument(
-        '--dropout_rate', type=float, default=0.1,
-        help="Dropout rate for all the dropbout layers. Again, could be "
-             "different in every layers but that's not the choice we made.\n"
-             "Needed in embedding, encoder and decoder. Value in [1] and "
-             "[2]: 0.1. Default: [%(default)s]")
+        '--nheads', type=int, default=8, metavar='n',
+        help="Number of heads per layer. Could be different for each layer \n"
+             "but we decided not to implement this possibility. [%(default)s]")
     gt.add_argument(
-        '--ffnn_hidden_size', type=int, default=None,
-        help="Size of the feed-forward neural network (FFNN) layer in the "
-             "encoder and decoder layers. The FFNN is composed of two linear "
-             "layers. This is the size of the output of the first one. "
+        '--dropout_rate', type=float, default=0.1, metavar='r',
+        help="Dropout rate for all dropout layers. Again, could be different\n"
+             "in every layers but that's not the choice we made.\n"
+             "Needed in embedding, encoder and decoder. [%(default)s]")
+    gt.add_argument(
+        '--ffnn_hidden_size', type=int, default=None, metavar='n',
+        help="Size of the feed-forward neural network (FFNN) layer in the \n"
+             "encoder and decoder layers. The FFNN is composed of two linear\n"
+             "layers. This is the size of the output of the first one. \n"
              "Default: data_embedding_size/2")
     gt.add_argument(
         '--activation', choices=['relu', 'gelu'], default='relu',
-        help="Choice of activation function in the FFNN. Default: "
-             "[%(default)s]")
+        metavar='key',
+        help="Choice of activation function in the FFNN. One of 'relu' or \n"
+             "'gelu'. [%(default)s]")
 
-    g = p.add_argument_group("Transformer model: others")
+    g = p.add_argument_group("Preprocessing")
     g.add_argument(
         '--normalize_directions', action='store_true',
-        help="If true, directions will be normalized. If the step size is "
-             "fixed, it shouldn't \nmake any difference. If streamlines are "
-             "compressed, in theory you should normalize, \nbut you could "
-             "hope that not normalizing could give back to the algorithm a \n"
-             "sense of distance between points.")
+        help="If true, directions will be normalized. If the step size is \n"
+             "fixed, it shouldn't make any difference. If streamlines are \n"
+             "compressed, in theory you should normalize, but you could hope\n"
+             "that not normalizing could give back to the algorithm a sense \n"
+             "of distance between points.")
     add_args_neighborhood(g)
 
     return gt
@@ -81,12 +82,10 @@ def add_abstract_model_args(p):
 def add_original_model_args(gt):
     gt.add_argument(
         '--n_layers_e', type=int, default=6,
-        help="Number of encoding layers. Value in [1] and [2]; 6. "
-             "Default: [%(default)s]")
+        help="Number of encoding layers. [%(default)s]")
     gt.add_argument(
         '--n_layers_d', type=int, default=6,
-        help="Number of decoding layers. Value in [1] and [2]; 6. "
-             "Default: [%(default)s]")
+        help="Number of decoding layers. [%(default)s]")
 
 
 def add_src_tgt_attention_args(gt):
@@ -135,10 +134,10 @@ def prepare_original_model(args, dg_args):
             # Concerning embedding:
             max_len=args.max_len,
             positional_encoding_key=args.position_encoding,
-            x_embedding_key=args.data_embedding,
-            t_embedding_key=args.target_embedding,
+            embedding_key_x=args.data_embedding,
+            embedding_key_t=args.target_embedding,
             # Torch's transformer parameters
-            d_model=args.d_model, dim_ffnn=args.ffnn_hidden_size,
+            d_model=args.d_model, ffnn_hidden_size=args.ffnn_hidden_size,
             nheads=args.nheads, dropout_rate=args.dropout_rate,
             activation=args.activation, n_layers_e=args.n_layers_e,
             n_layers_d=args.n_layers_e,
@@ -152,11 +151,9 @@ def prepare_original_model(args, dg_args):
     return model
 
 
-def prepare_src_tgt_model(args):
-    dg_args, args = perform_checks(args)
-
+def prepare_src_tgt_model(args, dg_args):
     with Timer("\n\nPreparing model", newline=True, color='yellow'):
-        model = TransformerSourceAndTargetModel(
+        model = TransformerSrcAndTgtModel(
             experiment_name=args.experiment_name,
             # Concerning inputs:
             neighborhood_type=args.neighborhood_type,
@@ -165,13 +162,12 @@ def prepare_src_tgt_model(args):
             # Concerning embedding:
             max_len=args.max_len,
             positional_encoding_key=args.position_encoding,
-            x_embedding_key=args.data_embedding,
-            t_embedding_key=args.target_embedding,
+            embedding_key_x=args.data_embedding,
+            embedding_key_t=args.target_embedding,
             # Torch's transformer parameters
-            d_model=args.d_model, dim_ffnn=args.ffnn_hidden_size,
+            d_model=args.d_model, ffnn_hidden_size=args.ffnn_hidden_size,
             nheads=args.nheads, dropout_rate=args.dropout_rate,
-            activation=args.activation,
-            n_layers_d=args.n_layers_e,
+            activation=args.activation, n_layers_d=args.n_layers_d,
             # Direction getter
             dg_key=args.dg_key, dg_args=dg_args,
             normalize_directions=args.normalize_directions)
